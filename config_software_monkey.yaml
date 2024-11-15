@@ -1,0 +1,20 @@
+
+#software
+star: /home/zgu_labs/anaconda3/envs/STAR/bin/STAR
+
+
+#singel cell
+ref_star: ""
+ref_gatk: ""
+CellrangerCount_ref: /scratch/zuhu/tmp/ref/single/Mmul_10
+CellrangerCount_ref_humanPlusMouse: ""
+CellrangerVDJ_ref: ""
+gtf_cellranger: /scratch/zuhu/tmp/ref/single/Mmul_10/genes/genes.gtf
+fa_cellranger: /scratch/zuhu/tmp/ref/single/Mmul_10/fasta/genome.fa
+gtf_msk: /scratch/zuhu/tmp/ref/single/Mmul_10/Mmul_10.rmsk.gtf
+cbsniffer_variant_file: 
+barcode_whitelist: /home/zgu_labs/bin/software/cellranger-7.2.0/cellranger-7.2.0/lib/python/cellranger/barcodes/737K-august-2016.txt
+
+
+
+

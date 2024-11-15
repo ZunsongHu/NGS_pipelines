@@ -1,0 +1,440 @@
+library(igraph)
+
+
+
+
+#for reference -----------------
+
+
+
+#add_percentage-------------------------------------------
+
+
+
+
+
+
+
+
+
+
+
+#run sc analysis one sample -----------------
+run_sc_analysis_toumap=function(inObj,label,MTgene,ribosomalGene,housekeepinngGene,dims){
+  #add qc measurement
+  inObj=add_percentage(inObj,MTgene,"percent.mt")
+  inObj=add_percentage(inObj,ribosomalGene,"percent.ribosomal")
+  inObj=add_percentage(inObj,housekeepinngGene,"percent.houseKeeping")
+  
+  #run pca
+  inObj <- NormalizeData(inObj)
+  inObj <- FindVariableFeatures(inObj, selection.method = "vst", nfeatures = 1000)
+  inObj <- ScaleData(inObj)
+  inObj <- RunPCA(inObj)
+  inObj = CellCycleScoring(object = inObj, s.features = s.genes, g2m.features = g2m.genes, set.ident = T)
+  
+  #umap based on pca
+  inObj <- RunUMAP(inObj, dims = dims)
+  
+  #run cluster
+  inObj <- FindNeighbors(inObj, dims = dims)
+  inObj <- FindClusters(inObj, resolution = 0.8)
+
+  Idents(inObj)=label
+  
+  inObj
+}
+
+
+run_sc_analysis=function(inObj,label,MTgene,ribosomalGene,housekeepinngGene,dims){
+  #add qc measurement
+  inObj=add_percentage(inObj,MTgene,"percent.mt")
+  inObj=add_percentage(inObj,ribosomalGene,"percent.ribosomal")
+  inObj=add_percentage(inObj,housekeepinngGene,"percent.houseKeeping")
+  
+  #run pca
+  inObj <- NormalizeData(inObj)
+  inObj <- FindVariableFeatures(inObj, selection.method = "vst", nfeatures = 1000)
+  inObj <- ScaleData(inObj)
+  inObj <- RunPCA(inObj)
+  inObj = CellCycleScoring(object = inObj, s.features = s.genes, g2m.features = g2m.genes, set.ident = T)
+  
+  #umap based on pca
+  inObj <- RunUMAP(inObj, dims = dims)
+  
+  #run cluster
+  inObj <- FindNeighbors(inObj, dims = dims)
+  inObj <- FindClusters(inObj, resolution = 0.8)
+  
+  #get singlet doublet --------
+  annotations=inObj@meta.data$seurat_clusters
+  homotypic.prop <- modelHomotypic(annotations)  
+  nExp_poi <- round(0.075*nrow(inObj@meta.data))  
+  nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+  inObj <- doubletFinder_v3(inObj, PCs = 1:10, pN = 0.25, pK = 0.09, nExp = nExp_poi.adj,  sct = FALSE)
+  
+  Singlet_Doublet=names(inObj@meta.data)[grepl("DF.classifications",names(inObj@meta.data))]
+  Singlet_Doublet_score=names(inObj@meta.data)[grepl("pANN",names(inObj@meta.data))]
+  
+  inObj[["Singlet_Doublet"]]=unlist(inObj@meta.data[Singlet_Doublet])
+  inObj[["Singlet_Doublet_score"]]=unlist(inObj@meta.data[Singlet_Doublet_score])
+  
+  #umap based on sctransform
+  # inObj_st <- SCTransform(inObj)
+  # inObj_st <- RunPCA(inObj_st)
+  # inObj_st <- RunUMAP(inObj_st, dims = dims)
+  
+  Idents(inObj)=label
+  
+  inObj
+}
+
+draw_VlnPlot_qc=function(inObj,outfile_prefix="2.data_temp/test/VlnPlot_qc"){
+  
+  dir_name=dirname(dirname(outfile_prefix))
+  if(!dir.exists(dir_name)){dir.create(dir_name)}
+  
+  dir_name=dirname(outfile_prefix)
+  if(!dir.exists(dir_name)){dir.create(dir_name)}
+  
+  #vilion plot
+  VlnPlot1=VlnPlot(inObj, features = "nFeature_RNA", ncol = 1) + theme(legend.position = "none")
+  VlnPlot2=VlnPlot(inObj, features = "nCount_RNA", ncol = 1) + theme(legend.position = "none")
+  VlnPlot3=VlnPlot(inObj, features = "percent.mt", ncol = 1) + theme(legend.position = "none")
+  VlnPlot4=VlnPlot(inObj, features = "percent.ribosomal", ncol = 1) + theme(legend.position = "none")
+  VlnPlot5=VlnPlot(inObj, features = "percent.houseKeeping", ncol = 1) + theme(legend.position = "none")
+  VlnPlot6=VlnPlot(inObj, features = "S.Score", ncol = 1) + theme(legend.position = "none")
+  VlnPlot7=VlnPlot(inObj, features = "G2M.Score", ncol = 1) + theme(legend.position = "none")
+  VlnPlot8=VlnPlot(inObj, features = "Singlet_Doublet_score", ncol = 1) + theme(legend.position = "none")
+  
+  ggarrange(VlnPlot1, VlnPlot2, VlnPlot3,VlnPlot4,VlnPlot5,VlnPlot6,VlnPlot7,VlnPlot8,ncol = 4, nrow = 2)
+  ggsave(filename = paste0(outfile_prefix,".png"),width = 13,height = 9)
+  ggsave(filename = paste0(outfile_prefix,".pdf"),width = 13,height = 9)
+}
+
+draw_correlationPlot_qc=function(inObj,outfile_prefix="2.data_temp/test/FeatureScatter_qc"){
+  dir_name=dirname(dirname(outfile_prefix))
+  if(!dir.exists(dir_name)){dir.create(dir_name)}
+  
+  dir_name=dirname(outfile_prefix)
+  if(!dir.exists(dir_name)){dir.create(dir_name)}
+  
+  #correlation plot
+  cor_plot1 <- FeatureScatter(inObj, feature1 = "nCount_RNA", feature2 = "percent.mt")+ theme(legend.position = "none")
+  cor_plot2 <- FeatureScatter(inObj, feature1 = "nCount_RNA", feature2 = "nFeature_RNA")+ theme(legend.position = "none")
+  cor_plot3 = FeatureScatter(inObj, feature1 = "nCount_RNA", feature2 = "percent.ribosomal")+ theme(legend.position = "none")
+  cor_plot4 = FeatureScatter(inObj, feature1 = "percent.ribosomal", feature2 = "percent.mt")+ theme(legend.position = "none")
+  
+  ggarrange(cor_plot1, cor_plot2, cor_plot3,cor_plot4,ncol = 4, nrow = 1)
+  ggsave(filename = paste0(outfile_prefix,".png"),width = 18,height = 4)
+  ggsave(filename = paste0(outfile_prefix,".pdf"),width = 18,height = 4)
+}
+
+draw_umap_qc=function(inObj,outfile_prefix="2.data_temp/test/umap_qc"){
+  dir_name=dirname(dirname(outfile_prefix))
+  if(!dir.exists(dir_name)){dir.create(dir_name)}
+  
+  dir_name=dirname(outfile_prefix)
+  if(!dir.exists(dir_name)){dir.create(dir_name)}
+  
+  umap1=FeaturePlot(inObj, features = "nFeature_RNA")
+  umap2=FeaturePlot(inObj, features = "nCount_RNA")
+  umap3=FeaturePlot(inObj, features = "percent.mt")
+  umap4=FeaturePlot(inObj, features = "percent.ribosomal")
+  umap5=FeaturePlot(inObj, features = "percent.houseKeeping")
+  umap6=FeaturePlot(inObj, features = "S.Score")
+  umap7=FeaturePlot(inObj, features = "G2M.Score")
+  umap8=DimPlot(inObj,group.by='Phase')
+  umap9=FeaturePlot(inObj, features = "Singlet_Doublet_score")
+  umap10=DimPlot(inObj,group.by='Singlet_Doublet')
+  
+  ggarrange(umap1, umap2,umap3,umap4,umap5,umap6,umap7,umap8,umap9,umap10,ncol = 4, nrow = 3)
+  ggsave(filename = paste0(outfile_prefix,".png"),width = 23,height = 12)
+  ggsave(filename = paste0(outfile_prefix,".pdf"),width = 23,height = 12)
+}
+
+draw_umap_class=function(inObj,var,outfile_prefix="2.data_temp/test/VlnPlot_qc"){
+  dir_name=dirname(dirname(outfile_prefix));if(!dir.exists(dir_name)){dir.create(dir_name)}
+  
+  dir_name=dirname(outfile_prefix);if(!dir.exists(dir_name)){dir.create(dir_name)}
+  
+  var_value=unlist(inObj@meta.data[var])
+  
+  Idents(inObj)=var_value
+  
+  col_in=unique(subtypeCol)[2:length(unique(subtypeCol))][1:length(unique(var_value))]
+  
+  DimPlot(inObj,cols = col_in)
+  ggsave(filename = paste0(outfile_prefix,".png"),width = 13,height = 9)
+  ggsave(filename = paste0(outfile_prefix,".pdf"),width = 13,height = 9)
+}
+
+draw_umap_continous=function(inObj,var,outfile_prefix="2.data_temp/test/VlnPlot_qc"){
+  dir_name=dirname(dirname(outfile_prefix));if(!dir.exists(dir_name)){dir.create(dir_name)}
+  dir_name=dirname(outfile_prefix);if(!dir.exists(dir_name)){dir.create(dir_name)}
+  
+  FeaturePlot(inObj, features = var)
+  ggsave(filename = paste0(outfile_prefix,".png"),width = 13,height = 9)
+  ggsave(filename = paste0(outfile_prefix,".pdf"),width = 13,height = 9)
+}
+
+draw_umap_withDefinedCol=function(inobj,df_feature,var,df_col,outfile,legend_insert_x,cex=0.7){
+  df_umap = as.data.frame(Embeddings(inobj[["umap"]]))
+  df_umap$barcode=row.names(df_umap)
+  df_umap=df_umap %>% left_join(df_feature) %>% left_join(df_col)
+  df_umap=df_umap %>% arrange(desc(var))
+  
+  df_legend=data.frame(label=unlist(df_umap[var]),col=df_umap$col) %>% distinct()
+  df_freq=data.frame(table(unlist(df_umap[var]))) %>% arrange(desc(Freq))
+  df_freq$Var1=as.character(df_freq$Var1)
+  names(df_freq)[1]="label"
+  
+  df_legend=df_freq %>% left_join(df_legend) %>% mutate(label_percentage=paste0(label," (",sprintf("%.1f",100*Freq/nrow(df_umap)),"%)"))
+  
+  png(outfile,width = 2500,height = 2200,res = 300)
+  par(mar=c(5, 4, 3, 12), xpd=TRUE)
+  plot(df_umap$UMAP_1,df_umap$UMAP_2,col=df_umap$col,pch=20,
+       xlab="UMAP dimension 1",ylab="UMAP dimension 2",cex=cex
+  )
+  legend("topright", inset=c(legend_insert_x,0.05), legend=df_legend$label_percentage,col=df_legend$col, pch=20, 
+         title="Group",bty = "n",pt.cex = 1.5)
+  dev.off()
+}
+
+
+
+#run tsne for one sample -----------------
+run_tsne=function(in_object,dir_plot,method_ForVariableGene="dispersion",N_variable=500,N_pc=40){
+  if(!dir.exists(dir_plot)){dir.create(dir_plot)}
+  
+  #Normalizing the data
+  in_object <- NormalizeData(in_object, normalization.method = "LogNormalize", scale.factor = 10000)
+  
+  #Identification of highly variable features (feature selection)
+  in_object <- FindVariableFeatures(in_object, selection.method = method_ForVariableGene, nfeatures = N_variable)
+  
+  top_10 <- head(VariableFeatures(in_object), 10)
+  
+  plot1 <- VariableFeaturePlot(in_object)
+  plot2 <- LabelPoints(plot = plot1, points = top_10, repel = TRUE)
+  plot1 + plot2
+  ggsave(file.path(dir_plot,"VariableFeaturePlot.png"),width = 20,height = 8)
+  ggsave(file.path(dir_plot,"VariableFeaturePlot.pdf"),width = 20,height = 8)
+  
+  #Scaling the data
+  all.genes <- head(VariableFeatures(in_object), N_variable)
+  
+  in_object <- ScaleData(in_object, features = all.genes)
+  
+  #Perform linear dimensional reduction PCA
+  set.seed(10)
+  in_object <- RunPCA(in_object, features = all.genes,npcs = 50)
+  
+  DimPlot(in_object, reduction = "pca",dims = c(1,2),pt.size=2)
+  ggsave(file.path(dir_plot,"DimPlot_PCA.png"),width = 10,height = 8)
+  ggsave(file.path(dir_plot,"DimPlot_PCA.pdf"),width = 10,height = 8)
+  
+  png(file.path(dir_plot,"DimHeatmap_PCA.png"),width = 4000,height = 3000,res = 300)
+  par(oma=c(1,1,1,10))
+  DimHeatmap(in_object, dims = 1:9, cells = 500, balanced = TRUE)
+  dev.off()
+  
+  pdf(file.path(dir_plot,"DimHeatmap_PCA.pdf"),width = 12,height = 9)
+  par(oma=c(1,1,1,10))
+  DimHeatmap(in_object, dims = 1:9, cells = 500, balanced = TRUE)
+  dev.off()
+  
+  ElbowPlot(in_object,ndims = 50)
+  ggsave(file.path(dir_plot,"ElbowPlot_PCA.png"),width = 10,height = 8)
+  ggsave(file.path(dir_plot,"ElbowPlot_PCA.pdf"),width = 10,height = 8)
+  
+  #Run non-linear dimensional reduction (UMAP/tSNE)
+  set.seed(10)
+  in_object <- RunUMAP(in_object, reduction = "pca", dims = 1:N_pc)
+  set.seed(10)
+  in_object <- RunTSNE(in_object, reduction = "pca", dims = 1:N_pc)
+  
+  #cell-type annotation
+  for_singleR=GetAssayData(in_object)
+  
+  pred_celltype <- SingleR(test = for_singleR, ref = hpca.se, assay.type.test=1,
+                           labels = hpca.se$label.fine)
+  
+  df_label_pred=data.frame(pred_celltype=pred_celltype$labels,stringsAsFactors = F)
+  df_label_pred = df_label_pred %>% mutate(
+    pred_cell1=word(pred_celltype,1,sep=":"),
+    pred_celltype_new=pred_celltype
+  )
+    #pred_celltype_new=ifelse(pred_cell1=="B_cell",pred_celltype,"Other")
+  
+  in_object[["SingleR.labels"]] <- df_label_pred$pred_celltype_new
+  
+  Idents(in_object)=df_label_pred$pred_celltype_new
+  
+  in_object1 <- subset(in_object, subset = SingleR.labels !="Other")
+  
+  DimPlot(in_object, reduction = "umap",pt.size = 1)
+  ggsave(file.path(dir_plot,"DimPlot_umpa.png"),width = 10,height = 8)
+  ggsave(file.path(dir_plot,"DimPlot_umpa.pdf"),width = 10,height = 8)
+  
+  DimPlot(in_object, reduction = "tsne",pt.size = 1)
+  ggsave(file.path(dir_plot,"DimPlot_tsne.png"),width = 10,height = 8)
+  ggsave(file.path(dir_plot,"DimPlot_tsne.pdf"),width = 10,height = 8)
+  
+  
+  freq_celltype=cal_freq_NoGroup(df_label_pred,"pred_celltype_new",1)
+  openxlsx::write.xlsx(freq_celltype,file.path(dir_plot,"freq_celltype.xlsx"))
+  in_object
+}
+
+#get_cdr3_freq -----------------
+
+get_cdr3_freq=function(object_in,df_vdj_in,top_count_cdr3,label,outdir){
+  if(!dir.exists(outdir)){dir.create(outdir)}
+  
+  
+  count_matrix=GetAssayData(object_in)
+  count_matrix1=as.data.frame(count_matrix)
+  
+  df_celltype=object_in@meta.data
+  df_celltype$barcode=row.names(df_celltype)
+  
+  df_celltype1=df_celltype %>% select(barcode,SingleR.labels)
+  
+  df_cdr3_in1=df_vdj_in %>% left_join(df_celltype1) %>% filter(!is.na(SingleR.labels)) %>%
+    filter(productive=="True" & full_length=="True" & is_cell=="True" & high_confidence=="True") %>%
+    filter(chain=="IGH") %>% group_by(barcode) %>% arrange(desc(reads)) 
+  
+  df_freq_cdr3=as.data.frame(table(df_cdr3_in1$cdr3)) %>% arrange(desc(Freq)) %>% 
+    transmute(cdr3=as.character(Var1),count_cdr3=Freq)
+  
+  df_vdj_enriched=df_cdr3_in1 %>% filter(cdr3 %in% head(df_freq_cdr3$cdr3,top_count_cdr3)) %>% 
+    left_join(df_freq_cdr3) %>% arrange(desc(count_cdr3),cdr3)
+  
+  openxlsx::write.xlsx(df_freq_cdr3,file.path(outdir,paste0("df_count_cdr3_",label,".xlsx")),overwrite = T)
+  openxlsx::write.xlsx(df_vdj_enriched,file.path(outdir,paste0("df_vdj_enriched_",label,".xlsx")),overwrite = T)
+  
+  list(df_vdj_enriched=df_vdj_enriched,df_count_cdr3=df_freq_cdr3)
+}
+
+#draw enrichment plot #####################
+draw_enrichment_plot=function(indata,label){
+  relations1=indata %>% left_join(df_celltype) %>% left_join(df_igh) 
+  relations1$SingleR.labels1=paste0(relations1$SingleR.labels,1:nrow(relations1))
+  relations1$c_gene1=paste0(relations1$c_gene,1:nrow(relations1))
+  relations2=relations1[c("cdr3","c_gene1")]
+  
+  
+  shape1=data.frame(name=unique(relations1$cdr3),shape="circle",size=1,stringsAsFactors = F)
+  shape2=relations1[c("c_gene1","shape")] %>% mutate(size=5)
+  names(shape2)[1:2]=c("name","shape")
+  df_shape=rbind(shape1,shape2)
+  
+  g <- graph_from_data_frame(relations2,directed=F)
+  
+  V(g)[relations2$cdr3]$color = "black"
+  V(g)[relations2$c_gene1]$color=relations1$col
+  
+  #pdf(paste0("2.data_temp/vdj_table/",label,"_enrichment_plot.pdf"),width = 8,height = 6)
+  png(paste0("2.data_temp/vdj_table/",label,"_enrichment_plot.png"),width = 2400,height = 1800,res = 300)
+  plot(g,vertex.label=NA,vertex.size=df_shape$size,vertex.shape=df_shape$shape)
+  legend("topleft",pch=19,col=df_celltype$col,legend = df_celltype$celltype1,
+         bg=NA,bty = "n")
+  legend("left",legend = df_igh1$c_gene1,pch=df_igh1$pch,bg=NA,bty = "n")
+  dev.off()
+}
+
+#Add triangle shape to igraph #################################################################
+# triangle vertex shape
+mytriangle <- function(coords, v=NULL, params) {
+  vertex.color <- params("vertex", "color")
+  if (length(vertex.color) != 1 && !is.null(v)) {
+    vertex.color <- vertex.color[v]
+  }
+  vertex.size <- 1/200 * params("vertex", "size")
+  if (length(vertex.size) != 1 && !is.null(v)) {
+    vertex.size <- vertex.size[v]
+  }
+  
+  symbols(x=coords[,1], y=coords[,2], bg=vertex.color,
+          stars=cbind(vertex.size, vertex.size, vertex.size),
+          add=TRUE, inches=FALSE)
+}
+# clips as a circle
+add_shape("triangle", clip=shapes("circle")$clip,plot=mytriangle)
+
+#add star shape to igraph ################################################################
+# generic star vertex shape, with a parameter for number of rays
+mystar <- function(coords, v=NULL, params) {
+  vertex.color <- params("vertex", "color")
+  if (length(vertex.color) != 1 && !is.null(v)) {
+    vertex.color <- vertex.color[v]
+  }
+  vertex.size  <- 1/200 * params("vertex", "size")
+  if (length(vertex.size) != 1 && !is.null(v)) {
+    vertex.size <- vertex.size[v]
+  }
+  norays <- params("vertex", "norays")
+  if (length(norays) != 1 && !is.null(v)) {
+    norays <- norays[v]
+  }
+  
+  mapply(coords[,1], coords[,2], vertex.color, vertex.size, norays,
+         FUN=function(x, y, bg, size, nor) {
+           symbols(x=x, y=y, bg=bg,
+                   stars=matrix(c(size,size/2), nrow=1, ncol=nor*2),
+                   add=TRUE, inches=FALSE)
+         })
+}
+# no clipping, edges will be below the vertices anyway
+add_shape("star", clip=shape_noclip,plot=mystar, parameters=list(vertex.norays=5))
+
+# color -------------------
+#BALL color
+subtypeCol=c()
+{
+  subtypeCol["ETV6-RUNX1"]="gold2"
+  subtypeCol["ETV6-RUNX1-like"]="pink"
+  subtypeCol["ETV6-RUNX1-sc"]="pink"
+  subtypeCol["KMT2A"]="#1F78B5"
+  subtypeCol["Ph"]="magenta3"
+  subtypeCol["DUX4"]='grey40'
+  subtypeCol["TCF3-PBX1"]="darkgoldenrod4"
+  subtypeCol["ZNF384"]="#A8DD00"
+  subtypeCol["MEF2D"]="#66C2A6"
+  subtypeCol["BCL2/MYC"]="seagreen2"
+  subtypeCol["NUTM1"]='black'
+  subtypeCol["HLF"]= "skyblue"
+  subtypeCol["PAX5(P80R)"]="orangered"
+  subtypeCol["PAX5 P80R"]="orangered"
+  subtypeCol["Hyperdiploid"]="#3E9F32"
+  subtypeCol["LowHypo"]="#1E90FF"
+  subtypeCol["Low hypodiploid"]="#1E90FF"
+  subtypeCol["NearHaploid"]='blue3'
+  subtypeCol["Near haploid"]='blue3'
+  subtypeCol["Ph-like"]="red4"
+  subtypeCol["PAX5alt"]="#FFA620"
+  subtypeCol["PAX5-ETV6"]="#808000"
+  subtypeCol["iAMP21"]="lightslateblue"
+  subtypeCol["IKZF1(N159Y)"]="#CCCC33"
+  subtypeCol["IKZF1 N159Y"]="#CCCC33"
+  subtypeCol["LowHyper"]="cyan"
+  subtypeCol["Bother"]='grey75'
+  subtypeCol["Low hyperdiploid"]='grey75'
+  subtypeCol["CRLF2(non-Ph-like)"]='grey75'
+  subtypeCol["KMT2A-like"]='grey75'
+  subtypeCol["ZNF384-like"]='grey75'
+  subtypeCol["Other"]='grey75'
+  subtypeCol["ZEB2/CEBPE"]="#D27B1C86"
+  subtypeCol["Y"]="#E6BEFF"
+  subtypeCol["Unknown"]="#469990"
+  subtypeCol["Normal"]="red4"
+  subtypeCol["Others"]="grey75"
+  subtypeCol["_Prediction"]="red4"
+  
+}
+df_BALL_col=data.frame(
+  diag=names(subtypeCol),
+  col=subtypeCol
+)
+

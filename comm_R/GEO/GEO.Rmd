@@ -1,0 +1,191 @@
+---
+title: "GEO"
+output: html_document
+date: "2024-06-28"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r get GEO data}
+library(GEOquery)
+
+gse="GSE49997"
+
+gset = getGEO(gse, GSEMatrix =T, getGPL=T)
+gset1=gset[[1]]
+gset1
+
+df_coldata=pData(gset1) %>% as.data.frame()
+write_tsv(df_coldata,"")
+
+df_anno=fData(gset1)
+
+df_exp=exprs(gset1)
+
+
+
+
+```
+
+
+```{r}
+#https://sbc.shef.ac.uk/geo_tutorial/tutorial.nb.html
+library(GEOquery)
+library(limma)
+library(umap)
+library(pheatmap)
+
+gset <- getGEO("GSE36961", GSEMatrix =T, getGPL=T)
+gse=gset[[1]]
+
+#get gene id
+df_fdata=fData(gse) 
+  mutate(gene=trimws(word(gene_assignment,2,sep="[//]+"))) %>% 
+  filter(!gene=="---")
+
+keep=rownames(gse) %in% df_fdata$ID
+table(keep)
+
+gse=gse[keep,]
+dim(gse)
+
+#normalization
+# exprs(gse) = log2(exprs(gse))
+boxplot(exprs(gse),outline=FALSE)
+summary(exprs(gse))
+
+#get sample info
+df_info=data.frame(pData(gse)) %>% 
+  transmute(GSM=geo_accession,group=ifelse(source_name_ch1=="diabetic nephropathy","Case",
+                                           ifelse(source_name_ch1=="unaffected portion of tumor nephrectomies","Control",NA)))
+
+#get mean of case and control
+df_exp=exprs(gse)
+dim(df_exp)
+df_exp_case=df_exp[,df_info$GSM[df_info$group=="Case"]]
+df_exp_control=df_exp[,df_info$GSM[df_info$group=="Control"]]
+
+mean_case=apply(df_exp_case,1,mean)
+mean_control=apply(df_exp_control,1,mean)
+df_exp=as.data.frame(df_exp)
+df_exp$mean_case=mean_case
+df_exp$mean_control=mean_control
+#get df output
+df_fdata1=df_fdata %>% dplyr::select(ID,gene) 
+
+table(df_fdata1$ID==row.names(df_exp))
+
+df_out=bind_cols(df_fdata1, df_exp)
+
+write_tsv(df_out,"df_out_gene.tsv")
+
+names(df_out)
+
+dim(df_out)
+
+#sample correlation
+corMatrix <- cor(exprs(gse),use="c")
+pheatmap(corMatrix)  
+
+#DE --
+design=model.matrix(~0+df_info$group)
+design
+colnames(design)=c("case","control")
+
+#pre-process
+summary(df_exp)
+cutoff=median(df_exp)
+is_expressed = df_exp > cutoff
+keep=rowSums(is_expressed) >2
+table(keep)
+gse=gse[keep,]
+
+#limma
+fit=lmFit(exprs(gse),design)
+head(fit$coefficients)
+contrasts = makeContrasts(case - control, levels=design)
+
+fit2 <- contrasts.fit(fit, contrasts)
+fit2 <- eBayes(fit2)
+
+topTable(fit2)
+
+decideTests(fit2)
+
+table(decideTests(fit2))
+
+anno=df_fdata %>% mutate(probe=ID) %>%  select(probe,gene)
+
+
+fit2$genes=anno
+
+topTable(fit2)
+
+full_results <- topTable(fit2, number=Inf)
+
+full_results <- tibble::rownames_to_column(full_results,"ID")
+
+ggplot(full_results,aes(x = logFC, y=B)) + geom_point()
+
+p_cutoff <- 0.05
+fc_cutoff <- 1
+
+full_results %>% 
+  mutate(Significant = adj.P.Val < p_cutoff, abs(logFC) > fc_cutoff ) %>% 
+  ggplot(aes(x = logFC, y = B, col=Significant)) + geom_point()
+
+#heatmap of DE gene
+topN=20
+
+ids_of_interest <- mutate(full_results, Rank = 1:n()) %>% 
+  filter(Rank < topN) %>% 
+  pull(ID)
+
+gene_names <- mutate(full_results, Rank = 1:n()) %>% 
+  filter(Rank < topN) %>% 
+  pull(gene) 
+
+gene_matrix <- exprs(gse)[ids_of_interest,]
+
+pheatmap(gene_matrix,
+     labels_row = gene_names)
+
+pheatmap(gene_matrix,
+     labels_row = gene_names,
+     scale="row")
+
+```
+
+
+
+```{r pathway}
+library(org.Hs.eg.db)
+keytypes(org.Hs.eg.db)
+columns(org.Hs.eg.db)
+
+my_genes <- c("HIG2", "CA1","ETV4","FOXA1")
+
+#get pathway from sets of genes
+anno <- AnnotationDbi::select(org.Hs.eg.db, 
+                              columns=c("ENSEMBL","GO"),
+                              keys=my_genes,
+                              keytype = "SYMBOL")
+
+anno
+
+#get genes from pathway
+anno <- AnnotationDbi::select(org.Hs.eg.db,
+                              columns="SYMBOL",
+                              keys="GO:0006338",
+                              keytype="GO")
+anno
+
+```
+
+
+
+
+

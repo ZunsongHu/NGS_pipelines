@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1731546243317.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "BF522C67",
+    "lastKnownWriteTime" : 1731546257,
+    "last_content_update" : 1731546257816,
+    "path" : "~/pipeline/comm_R/1.descriptive/Descriptive analysis.R",
+    "project_path" : null,
+    "properties" : {
+        "cursorPosition" : "26,1",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 5,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

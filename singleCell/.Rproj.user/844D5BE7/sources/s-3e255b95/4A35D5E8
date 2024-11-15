@@ -1,0 +1,25 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1731546097192.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "4A35D5E8",
+    "lastKnownWriteTime" : 1731550935,
+    "last_content_update" : 1731550935121,
+    "path" : "~/pipeline/singleCell/scripts/R/F_sc_old.R",
+    "project_path" : "scripts/R/F_sc_old.R",
+    "properties" : {
+        "cursorPosition" : "41,74",
+        "scrollLine" : "0"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 2,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

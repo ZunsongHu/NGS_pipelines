@@ -1,0 +1,835 @@
+options(warn=-1)
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(dplyr)
+  library(patchwork)
+  library(ggplot2)
+  library(SummarizedExperiment)
+  library(stringr)
+})
+options(warn=0)
+#matrix_count=GetAssayData(obj_,assay = "RNA",slot="count")
+
+
+#args <- commandArgs(trailingOnly = TRUE)
+#print(args)
+
+#file_tsv=args[1]
+
+add_percentage=function(inObj,gene_list,label){
+  gene_list_all=rownames(x = inObj)
+  inObj[[label]] <- PercentageFeatureSet(inObj, features = gene_list_all[gene_list_all %in% gene_list])
+  inObj
+}
+
+#FilterGenes -------------------------------------
+FilterGenes <-
+  function (object, min.value=1, min.cells = 0, genes = NULL) {
+    genes.use <- rownames(object)
+    if (!is.null(genes)) {
+      genes.use <- intersect(genes.use, genes)
+      object@data <- GetAssayData(object)[genes.use, ]
+    } else if (min.cells > 0) {
+      num.cells <- Matrix::rowSums(GetAssayData(object) > min.value)
+      genes.use <- names(num.cells[which(num.cells >= min.cells)])
+      object = object[genes.use, ]
+    }
+    object <- LogSeuratCommand(object = object)
+    return(object)
+  }
+
+#get ENSG id ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+hkgenes_human=readLines("/home/zgu_labs/bin/R/SingleCell/HouseKeepingGenes.txt")
+hkgenes_mouse=readLines("/home/zgu_labs/bin/R/SingleCell/HouseKeepingGenes_mouse.txt")
+
+file_all_geneid="/ref_genomes/genome_anno/human/gtf/V102/Homo_sapiens.GRCh38.V102.summary.txt"
+geneid_all=read.table(file_all_geneid,header = T,stringsAsFactors = F,sep="\t")
+
+file_geneid="/ref_genomes/genome/human/GRCh38/cellranger/expression/GRCh38/genes/genes.gtf.summary.txt"
+df_geneid=read.table(file_geneid,header = T,stringsAsFactors = F)
+
+get_ENSGID=function(genes){x1=df_geneid[df_geneid$gene_name %in% genes,];x1$gene_id}
+
+s_ENSG=get_ENSGID(Seurat::cc.genes$s.genes)
+g2m_ENSG=get_ENSGID(Seurat::cc.genes$g2m.genes)
+MT_ENSG=get_ENSGID(df_geneid$gene_name[grepl("^MT-",df_geneid$gene_name)])
+Ribosomal_ENSG=get_ENSGID(df_geneid$gene_name[grepl("^RP[SL]",df_geneid$gene_name)])
+housekeeping_ENSG=get_ENSGID(hkgenes_human)
+
+
+#create_seurat_object------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+# min.cells, Include features detected in at least this many cells. Will subset the counts matrix as well. 
+# min.features, Include cells where at least this many features are detected.
+create_seurat_object=function(data_dir,
+                              project_name="Seurat_obj",
+                              min.cells=0,
+                              min.features=0,
+                              gene.column=2){
+  print("reading data")
+  data = Read10X(data.dir = data_dir,gene.column=gene.column)
+  print("create object")
+  seurat_object=CreateSeuratObject(counts = data, project = project_name, 
+                                   min.cells = min.cells, min.features = min.features)
+  return(seurat_object)
+}
+
+
+#Basic -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+get_barcode_df=function(object_in){
+  data.frame(barcode=row.names(object_in@meta.data),stringsAsFactors = F)
+}
+
+get_metadataVar=function(inObj,var){
+  df_out=bind_cols(
+    data.frame(barcode=row.names(inObj@meta.data),
+                    stringsAsFactors = F),
+  as.data.frame(inObj@meta.data[var])
+  )
+  
+  
+  # names(df_out)[2]=var
+  df_out
+}
+
+get_embedding_df=function(inobj,reduction_method){
+  df_embed = as.data.frame(Embeddings(inobj[[reduction_method]]))
+  df_embed$barcode=row.names(df_embed)
+  df_embed
+}
+
+#' get_ExpFeatures
+#'
+#' @param obj_in 
+#' @param features 
+#' @param slot 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+get_ExpFeatures=function(obj_in,features,assay="RNA",slot="data"){
+  df_features_all=as.data.frame(t(GetAssayData(obj_in,assay = assay,slot = slot)))
+  df_features_all$barcode=row.names(df_features_all)
+  features_overlap=features[features %in% names(df_features_all)]
+  
+  message(paste0("Input feature number: ",length(features)))
+  message(paste0("Overlap feature number: ",length(features_overlap)))
+  
+  if(length(features_overlap)>0){df_feature_out=df_features_all[c("barcode",features_overlap)]}
+  if(length(features_overlap)==0){df_feature_out=df_features_all[c("barcode")]}
+  df_feature_out
+}
+
+#' get_MatrixCount_from_obj
+#'
+#' @param inObj 
+#' @param outfile 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+get_MatrixCount_from_obj=function(inObj,outfile=NULL){
+  matrix_count=as.matrix(GetAssayData(inObj[['RNA']],slot = "counts"))
+  
+  matrix_count_t=as.data.frame(as.matrix(t(matrix_count)))
+  
+  df_rownames=data.frame(cells=row.names(matrix_count_t),stringsAsFactors = F)
+  
+  matrix_out=bind_cols(df_rownames,matrix_count_t)
+  
+  if(!is.null(outfile)){
+  write.csv(matrix_out,outfile,quote = F,row.names = F)
+  }
+  matrix_out
+}
+
+get_ExpressionBarcode=function(obj_in,key_genes,KeepTopN=400){
+  
+  df_matrix_count=as.data.frame(as.matrix(t(GetAssayData(obj_in,assay = "RNA",slot = "count"))))
+  
+  out_barcode=bind_rows(
+    lapply(key_genes, function(key_gene){
+      cat(paste0("Working on ",key_gene,"\n"))
+      if(key_gene %in% names(df_matrix_count)){
+        
+        df_matrix_count1=df_matrix_count
+        df_matrix_count1$key_gene=unlist(df_matrix_count[key_gene])
+        
+        df_matrix_count1=df_matrix_count1 %>% 
+          arrange(desc(key_gene)) %>% 
+          filter(key_gene>0)
+        
+        if(nrow(df_matrix_count1)>KeepTopN){df_matrix_count1=df_matrix_count1 %>% sample_n(KeepTopN)}
+        
+        out=data.frame(barcode=row.names(df_matrix_count1),stringsAsFactors = F)
+      }
+      
+      if(!key_gene %in% names(df_matrix_count)){
+        out=NULL
+      }
+      out
+      
+    })
+  ) %>% distinct()
+  out_barcode
+}
+
+
+
+
+
+#For QC -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+add_qc_measurements=function(inObj,getMTgeneAuto=T,
+                             MTgene=df_geneid$gene_name[grepl("^MT-",df_geneid$gene_name)],
+                             ribosomalGene=df_geneid$gene_name[grepl("^RP[SL]",df_geneid$gene_name)],
+                             housekeepinngGene=hkgenes_human){
+  
+  gene_list=rownames(x = inObj)
+  
+  if(getMTgeneAuto==T){
+    MTgene=gene_list[grepl("^MT-",toupper(gene_list))]
+    ribosomalGene=gene_list[grepl("^RP[SL]",toupper(gene_list))]
+  }  
+  
+  # print(paste0("ribosomalGene list:",paste0(ribosomalGene,collapse = ",")))
+  # print(paste0("MTgene list:",paste0(MTgene,collapse = ",")))
+  # print(paste0("housekeepinngGene list:",paste0(housekeepinngGene,collapse = ",")))
+  # 
+  ribosomalGene1=gene_list[gene_list %in% ribosomalGene]
+  MTgene1=gene_list[gene_list %in% MTgene]
+  housekeepinngGene1=gene_list[gene_list %in% housekeepinngGene]
+  
+  print(paste0("Used ribosomalGene:",paste0(ribosomalGene1,collapse = ",")))
+  print(paste0("Used MTgene:",paste0(MTgene1,collapse = ",")))
+  print(paste0("Used housekeepinngGene:",paste0(housekeepinngGene1,collapse = ",")))
+  
+  #add qc measurement
+  inObj[['percent.ribosomal']] = PercentageFeatureSet(inObj, features = ribosomalGene1)
+  inObj[['percent.mt']] = PercentageFeatureSet(inObj, features = MTgene1)
+  inObj[['percent.houseKeeping']] = PercentageFeatureSet(inObj, features = housekeepinngGene1)
+  
+  inObj
+}
+
+get_cutoff=function(inObj,
+                    var_list=c("nCount_RNA","nFeature_RNA","percent.ribosomal","percent.mt","percent.houseKeeping")){
+  bind_rows(lapply(var_list, function(var_in){
+    x=unlist(inObj@meta.data[var_in])
+    df_cutoff=data.frame(
+      var=var_in,
+      percentile_1=quantile(x,0.01),
+      percentile_5=quantile(x,0.05),
+      percentile_10=quantile(x,0.10),
+      percentile_90=quantile(x,0.90),
+      percentile_95=quantile(x,0.95),
+      percentile_99=quantile(x,0.99),
+      
+      median_=median(x),
+      mad_=mad(x),
+      
+      medianAdd3MAD=median(x)+3*mad(x),
+      medianMinus3MAD=median(x)-3*mad(x),
+      stringsAsFactors = F
+    )
+    df_cutoff
+  }))
+}
+
+#get_cutoff_mad------------------------
+get_cutoff_mad=function(inobj){
+  
+  Counts_per_cell = Matrix::colSums(inobj)
+  Features_per_cell = Matrix::colSums(GetAssayData(inobj)>0)
+  
+  Counts_per_cell_upper=median(Counts_per_cell)+3*mad(Counts_per_cell)
+  Counts_per_cell_lower=median(Counts_per_cell)-3*mad(Counts_per_cell)
+  Counts_per_cell_lower=ifelse(Counts_per_cell_lower<0,0,Counts_per_cell_lower)
+  
+  Features_per_cell_upper=median(Features_per_cell)+3*mad(Features_per_cell)
+  Features_per_cell_lower=median(Features_per_cell)-3*mad(Features_per_cell)
+  Features_per_cell_lower=ifelse(Features_per_cell_lower<0,0,Features_per_cell_lower)
+  
+  out=c(Counts_per_cell_lower,Counts_per_cell_upper,Features_per_cell_lower,Features_per_cell_upper)
+  names(out)=c("Counts_per_cell_lower",'Counts_per_cell_upper','Features_per_cell_lower','Features_per_cell_upper')
+  out
+}
+
+
+Dimplot_QC=function(inObj,reduction,outfile_frefix){
+  p1=FeaturePlot(object = inObj, reduction=reduction,features = "percent.mito")
+  p2=FeaturePlot(object = inObj, reduction=reduction,features = "nFeature_RNA")
+  p3=FeaturePlot(object = inObj, reduction=reduction,features = "nCount_RNA")
+  
+  p1+p2+p3
+  ggsave(paste0(outfile_frefix,".png"),width = 9,height = 12)
+  ggsave(paste0(outfile_frefix,".pdf"),width = 9,height = 12)
+}
+
+
+get_topVariableGenes=function(in_object,method_ForVariableGene="vst",N_variable){
+  #Normalizing the data
+  in_object <- NormalizeData(in_object, normalization.method = "LogNormalize", scale.factor = 10000)
+  
+  #Identification of highly variable features (feature selection)
+  in_object <- FindVariableFeatures(in_object, selection.method = method_ForVariableGene, nfeatures = N_variable)
+  
+  top_gene <- head(VariableFeatures(in_object), N_variable)
+  
+  in_object1=in_object[top_gene]
+  return(in_object1)
+}
+
+source("/home/zgu_labs/bin/R/SingleCell/Seurat/doubleletFinder_hu.R")
+get_doublet_DoubletFinder=function(inObj){
+  #get singlet doublet 
+  annotations=inObj@meta.data$seurat_clusters
+  homotypic.prop <- DoubletFinder::modelHomotypic(annotations)  
+  nExp_poi <- round(0.075*nrow(inObj@meta.data))  
+  nExp_poi.adj <- round(nExp_poi*(1-homotypic.prop))
+  inObj <- doubletFinder_new(seu=inObj, PCs = 1:50, pN = 0.25, pK = 0.09, nExp = nExp_poi.adj,  sct = T)
+  
+  Singlet_Doublet=names(inObj@meta.data)[grepl("DF.classifications",names(inObj@meta.data))]
+  Singlet_Doublet_score=names(inObj@meta.data)[grepl("pANN",names(inObj@meta.data))]
+  
+  inObj[["Singlet_Doublet"]]=unlist(inObj@meta.data[Singlet_Doublet])
+  inObj[["Singlet_Doublet_score"]]=unlist(inObj@meta.data[Singlet_Doublet_score])
+  inObj
+}
+
+
+# correct_batch_seurat ---------------------
+
+batch_correction_seurat=function(inObj,var_batch,n_varaible=5000,method="RPCA"){
+  cat("Avaiable methods for batch correction: RPCA, CCA, SCT\n")
+  options(future.globals.maxSize= 1612185600)
+  
+  cat("Split object...\n")
+  obj_list=SplitObject(inObj, split.by = var_batch)
+  obj_list=lapply(obj_list, function(x){
+    matrix_count=as.matrix(GetAssayData(x,assay = "RNA",slot = "count"))
+    df_info=as.data.frame(x@meta.data)
+    x_out=CreateSeuratObject(matrix_count,meta.data = df_info)
+  })
+  
+  if(method %in% c("RPCA","CCA")){
+    cat("Runing preparation\n")
+    
+    obj_list <- lapply(X = obj_list, FUN = function(x) {
+      x <- NormalizeData(x,verbose = F)
+      x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = n_varaible,verbose = F)
+    })
+    
+    features <- SelectIntegrationFeatures(object.list = obj_list)
+    
+    
+    if(method=="RPCA"){
+      obj_list <- lapply(X = obj_list, FUN = function(x) {
+        x <- ScaleData(x, features = features, verbose = FALSE)
+        x <- RunPCA(x, features = features, verbose = FALSE)
+      })
+      cat("Finding anchors, using rPCA\n")
+      obj_anchors = FindIntegrationAnchors(object.list = obj_list, anchor.features = features, reduction = "rpca",verbose = F)
+    }
+    
+    if(method=="CCA"){
+      print("Finding anchors, using CCA")
+      obj_anchors=FindIntegrationAnchors(object.list = obj_list, anchor.features = features,verbose = F)
+    }
+    
+    cat("Integrate Data\n")
+    obj_combined= IntegrateData(anchorset = obj_anchors)
+    
+    
+    DefaultAssay(obj_combined) = "integrated"
+    
+    obj_combined=ScaleData(obj_combined)
+    obj_combined=RunPCA(obj_combined)
+  }
+  
+  if(method =="SCT"){
+    cat("Runing preparation\n")
+    obj_list <- lapply(X = obj_list, FUN = function(x) {
+      x <- SCTransform(x,variable.features.n = n_varaible,verbose = F)
+    })
+    
+    features <- SelectIntegrationFeatures(object.list = obj_list,nfeatures = 10000)
+    
+    obj_list = PrepSCTIntegration(object.list = obj_list, anchor.features = features,verbose = FALSE)
+    
+    cat("Finding anchors, using rPCA\n")
+    anchors_integration = FindIntegrationAnchors(object.list = obj_list, normalization.method = "SCT",
+                                                 anchor.features = features, verbose = FALSE)
+    
+    cat("Integrate Data\n")
+    obj_integrated = IntegrateData(anchorset = anchors_integration, normalization.method = "SCT",verbose = FALSE)
+
+    obj_combined = RunPCA(obj_integrated, verbose = FALSE)
+  }
+  
+  obj_combined
+}
+
+
+#SC analysis -----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+SCTransform2cluster=function(objIn,resolution=1,n_pc=50,n_variableGenes=2000,n.neighbors=30){
+  print("x1")
+  objIn=SCTransform(objIn,variable.features.n = n_variableGenes)
+  print("x2")
+  objIn = RunPCA(objIn,npcs =n_pc ,verbose = FALSE)
+  print("x3")
+  objIn = RunUMAP(objIn, dims = 1:n_pc, verbose = FALSE,n.neighbors=n.neighbors)
+  print("x4")
+  objIn = FindNeighbors(objIn, dims = 1:n_pc, verbose = FALSE)
+  print("x5")
+  objIn = FindClusters(objIn, verbose = FALSE,resolution = resolution)
+  print("x6")
+  objIn
+}
+
+
+get_SCT_matrix=function(count_matrix,n_variableGenes=10000){
+  obj_=CreateSeuratObject(count_matrix)
+  
+  obj_=SCTransform(obj_,variable.features.n = n_variableGenes)
+  
+  df_sctmatrix=as.data.frame(as.matrix(GetAssayData(obj_[["SCT"]],slot="data")))
+  df_sctmatrix$gene_name=row.names(df_sctmatrix)
+  df_sctmatrix1=df_sctmatrix[c("gene_name",names(df_sctmatrix)[1:(ncol(df_sctmatrix)-1)])]
+  df_sctmatrix1
+}
+
+
+#Draw singlecell plot ---------------------------------------------------------------------------------------------------------------------------------------------------------------
+draw_feature_plot_fromDF=function(objIn,df,varname,label,cols_in,dir_out){
+  
+  objIn[[label]]=unlist(df[varname])
+  
+  DimPlot(objIn,group.by = label,label=T,repel = T,
+          cols = cols_in[names(cols_in) %in% unlist(objIn@meta.data[label])])
+  ggsave(paste0(dir_out,label,".png"),width=16,height = 9)
+  ggsave(paste0(dir_out,label,".pdf"),width=16,height = 9)
+  
+  objIn
+}
+
+
+draw_DimPlot=function(inObj,df_feature,var_key,label,file_out_prefix){
+  if (!all(row.names(inObj@meta.data)==unlist(df_feature[1]))){stop("barcode not equal")}
+  
+  inObj[[label]]=unlist(df_feature[var_key])
+  DimPlot(inObj,group.by = label,label=T,repel = T,cols=DiscretePalette(length(unique(unlist(df_feature[var_key])))))
+  
+  ggsave(paste0(file_out_prefix,".png"),width=10,height = 10)
+  ggsave(paste0(file_out_prefix,".pdf"),width=10,height = 10)
+  inObj
+}
+
+draw_umap_mini=function(obj,var_group,label,dir_out,width=15,height=11){
+  
+  n_levels=length(unique(unlist(get_metadataVar(obj,var_group)[,2])))
+  
+  DimPlot(obj,group.by = var_group,label=T,repel = T,cols=DiscretePalette(n_levels))
+  ggsave(paste0(dir_out,"umap_",label,"_",var_group,".pdf"),width=width,height = height)
+  ggsave(paste0(dir_out,"umap_",label,"_",var_group,".png"),width=width,height = height)
+  
+}
+
+#SingleR Annotation -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+# inObj=obj_QC
+# ref_singleR=ref_BALL
+# var_group="diag"
+
+create_singleR_ref=function(exp,pheno,var_group){
+  pheno1=pheno[var_group]
+  
+  if(!all(colnames(exp)==row.names(pheno1))){stop("Exp colname not equal to row names of Pheno")}
+  
+  objOut = SummarizedExperiment(list(logcounts=exp), colData = pheno1)
+  objOut
+}
+
+# inObj=obj_QC
+# ref_singleR=ref_BALL
+# var_group="diag"
+
+run_singleR=function(inObj,ref_singleR,var_group,
+                     transform="SCT",method="classic"){
+  #using top variable features
+  # top_variable_features=head(VariableFeatures(inObj), top_variable_features_n)
+  # for_singleR=GetAssayData(inObj)
+  # for_singleR=for_singleR[top_variable_features,]
+  
+  if(transform=="SCT"){
+  #using all the features
+  for_singleR=GetAssayData(inObj[["SCT"]], slot = "data")
+  }
+  
+  if(transform=="ordinary"){
+    #using all the features
+    for_singleR=GetAssayData(inObj)
+  }
+  
+  print(dim(for_singleR))
+  
+  value_group=unlist(ref_singleR@colData[var_group])
+  
+  #cell level annotation
+  print("cell level annotation")
+  out_singleR = SingleR::SingleR(test = for_singleR, ref = ref_singleR,labels = value_group)
+  
+  #cluster level annotation
+  print("cluster level annotation")
+  out_singleR_cluster = SingleR::SingleR(test = for_singleR, ref = ref_singleR,labels = value_group,clusters=inObj$seurat_clusters)
+
+  #get output 
+  df_singleR_out=data.frame(
+    barcode=row.names(inObj@meta.data),
+    seurat_clusters=inObj$seurat_clusters,
+    labels=out_singleR$labels,
+    pruned.labels=out_singleR$pruned.labels,
+    stringsAsFactors = F) %>%
+    left_join(data.frame(
+      seurat_clusters=sort(unique(inObj$seurat_clusters)),
+      labels_cluster=out_singleR_cluster$labels,
+      pruned.labels_cluster=out_singleR_cluster$pruned.labels,
+      stringsAsFactors = F
+    )
+    )
+
+  return(list(out_singleR=out_singleR,out_singleR_cluster=out_singleR_cluster,df_singleR_out=df_singleR_out))
+}
+
+
+#' run_singleR_clusterOnly
+#'
+#' @param inObj 
+#' @param ref_singleR 
+#' @param var_group 
+#' @param transform 
+#' @param method 
+#'
+#' @return
+#' @export
+#'
+#' @examples
+run_singleR_clusterOnly=function(inObj,ref_singleR,var_group,transform="ordinary",var_cluster="seurat_clusters"){
+  #using top variable features
+  # top_variable_features=head(VariableFeatures(inObj), top_variable_features_n)
+  # for_singleR=GetAssayData(inObj)
+  # for_singleR=for_singleR[top_variable_features,]
+  
+  if(transform=="SCT"){
+    #using all the features
+    for_singleR=GetAssayData(inObj[["SCT"]], slot = "data")
+  }
+  
+  if(transform=="ordinary"){
+    #using all the features
+    for_singleR=GetAssayData(inObj)
+  }
+  
+  print(dim(for_singleR))
+  
+  value_group=unlist(ref_singleR@colData[var_group])
+  
+  #cluster level annotation
+  print("cluster level annotation")
+  value_cluster=unlist(inObj@meta.data[var_cluster])
+  
+  out_singleR_cluster = SingleR::SingleR(test = for_singleR, ref = ref_singleR,labels = value_group,clusters=value_cluster)
+  
+  #get output 
+  df_singleR_out=data.frame(
+    barcode=row.names(inObj@meta.data),
+    var_cluster=value_cluster,
+    stringsAsFactors = F) %>%
+    left_join(data.frame(
+      var_cluster=sort(unique(value_cluster)),
+      labels_cluster=out_singleR_cluster$labels,
+      pruned.labels_cluster=out_singleR_cluster$pruned.labels,
+      stringsAsFactors = F
+    )
+    )
+  
+  return(list(out_singleR_cluster=out_singleR_cluster,df_singleR_out=df_singleR_out))
+}
+
+# inObj=obj_QC
+# ref_singleR1=ref_HPCA
+# ref_singleR2=ref_BlineageRef_30types
+# var_group1="label.final"
+# var_group2="celltype"
+
+
+run_singleR_doubleRef=function(inObj,ref_singleR1,ref_singleR2,var_group1,var_group2){
+  #using all the features
+  # for_singleR=GetAssayData(inObj[["SCT"]], slot = "data")
+  for_singleR=GetAssayData(inObj)
+  
+  print(dim(for_singleR))
+  
+  value_group1=unlist(ref_singleR1@colData[var_group1])
+  value_group2=unlist(ref_singleR2@colData[var_group2])
+  
+  #cell level annotation
+  print("cell level annotation")
+  out_singleR = SingleR::SingleR(test = for_singleR, 
+                                 ref = list(ref1=ref_singleR1,ref2=ref_singleR2),
+                                 labels = list(value_group1,value_group2))
+  
+  #cluster level annotation
+  print("cluster level annotation")
+  out_singleR_cluster = SingleR::SingleR(test = for_singleR, 
+                                         ref = list(ref1=ref_singleR1,ref2=ref_singleR2),
+                                         labels = list(value_group1,value_group2),
+                                         clusters=inObj$seurat_clusters)
+  
+  #get output 
+  df_singleR_out=data.frame(
+    barcode=row.names(inObj@meta.data),
+    seurat_clusters=inObj$seurat_clusters,
+    labels=out_singleR$labels,
+    pruned.labels=out_singleR$pruned.labels,
+    stringsAsFactors = F) %>%
+    left_join(data.frame(
+      seurat_clusters=sort(unique(inObj$seurat_clusters)),
+      labels_cluster=out_singleR_cluster$labels,
+      pruned.labels_cluster=out_singleR_cluster$pruned.labels,
+      stringsAsFactors = F
+    )
+    )
+  return(list(out_singleR=out_singleR,out_singleR_cluster=out_singleR_cluster,df_singleR_out=df_singleR_out))
+}
+
+
+
+draw_annotation_plot=function(objIn,singleR_obj,label,cols_in,dir_out){
+  
+  objIn[[label]]=singleR_obj$pruned.labels
+  
+  DimPlot(objIn,group.by = label,label=T,repel = T,
+          cols = cols_in[names(cols_in) %in% unlist(objIn@meta.data[label])])
+  ggsave(paste0(dir_out,label,".png"),width=11,height = 10)
+  ggsave(paste0(dir_out,label,".pdf"),width=11,height = 10)
+  
+  objIn
+}
+
+
+get_singleR_labels=function(in_singleR_obj){
+  data.frame(
+    barcode=in_singleR_obj@rownames,
+    labels=in_singleR_obj$labels,
+    pruned.labels=in_singleR_obj$pruned.labels,
+    deltaFromMedian=SingleR::getDeltaFromMedian(in_singleR_obj),
+    stringsAsFactors = F
+  )
+}
+
+get_singleR_scoreMatrix=function(in_singleR_obj){
+  matrix_score=bind_cols(
+    data.frame(
+      barcode=in_singleR_obj@rownames,
+      labels=in_singleR_obj$labels,
+      stringsAsFactors = F
+    ),
+    as.data.frame(in_singleR_obj$scores)
+  )
+  row.names(matrix_score)=matrix_score$barcode
+  matrix_score
+}
+
+get_singleR_heatmapScore=function(in_singleR_obj){
+  df_label=get_singleR_labels(in_singleR_obj) %>% 
+    left_join(get_singleR_topCells(in_singleR_obj)) %>% 
+    filter(labels==labelsFromMaxScore) %>% mutate(n=n()) %>% 
+    group_by(labels) %>% mutate(n_g=n(),diag_per=round(n_g/n,4)) %>% 
+    arrange(desc(n_g),desc(deltaFromMedian)) %>% ungroup() %>% mutate(obs=1:n())
+  
+  df_label_unique=df_label %>% dplyr::select(labels,n_g,diag_per) %>% arrange(desc(n_g)) %>% distinct() %>% 
+    mutate(label_=paste0(letters[1:n()],".",labels),
+           per=paste0(sprintf("%.1f",diag_per*100),"%"),
+           label_per=paste0(labels," (",per,")"))
+  
+  names(df_label_unique)[1]="variable"
+  
+  matrix_score_=df_label %>% 
+    left_join(get_singleR_scoreMatrix(in_singleR_obj) %>% mutate(labels=NULL)) %>% 
+    arrange(obs)
+
+  scale_0to1=function(x){
+    x=as.numeric(x)
+    (x-min(x))/(max(x)-min(x))}
+  
+  df_score_=matrix_score_[c("barcode","obs","labels",df_label_unique$variable)] %>% 
+    reshape2::melt(id.vars=c("barcode","obs","labels")) %>% left_join(df_label_unique) %>% 
+    group_by(barcode) %>% 
+    mutate(value1=scale_0to1(value)) %>% ungroup()
+  
+  df_score_
+}
+
+
+get_singleR_topCells=function(in_singleR_obj,topPercentileOfDeltaToKeep=0.9,remove_valueLabelNonConsistent=F){
+  #get label using max score
+  df_score=as.data.frame(in_singleR_obj$scores)
+  df_score$barcode=in_singleR_obj@rownames
+  df_score1=df_score %>% reshape2::melt(id.vars=c("barcode")) %>% 
+    group_by(barcode) %>% filter(value==max(value))
+  names(df_score1)[2:3]=c("labelsFromMaxScore","maxScore")
+  
+  #get top cells using delta
+  cutoff_delta_precentile=1-topPercentileOfDeltaToKeep
+  df_delta=get_singleR_labels(in_singleR_obj) %>% 
+    group_by(labels) %>% 
+    mutate(
+      delta_cutoff=quantile(deltaFromMedian,cutoff_delta_precentile),
+      label_top=ifelse(deltaFromMedian>delta_cutoff,as.character(labels),NA)
+    ) %>% ungroup()
+  
+  #get output 
+  df_out=df_score1 %>% left_join(df_delta %>% dplyr::select(barcode,label_top))
+
+  if(remove_valueLabelNonConsistent){
+    df_out=df_out %>% 
+      mutate(label_top=ifelse(label_top==labelsFromMaxScore,label_top,NA))
+  }
+  
+  df_out
+}
+
+draw_barplot=function(x,file_out_prefix,width=5,height=10){
+  x[is.na(x)]="NA";  n=length(x)
+  
+  df_freq=data.frame(table(x)) %>% arrange(desc(Freq)) %>%
+    mutate(Group=as.character(x),
+           ratio=Freq/n,
+           Percentage=paste0(Group,": ",Freq," (",sprintf("%.2f",ratio*100),"% )"))
+  
+  ggplot(df_freq,aes(x=ratio,y=Percentage)) + geom_bar(stat="identity") +
+    theme_classic()
+  ggsave(paste0(file_out_prefix,".png"),width=width,height = height)
+  ggsave(paste0(file_out_prefix,".pdf"),width=width,height = height)
+}
+
+#Pseudotime analysis  ------------------------------------------------------------------------------------------------------------------------------------------------------
+
+get_pseudotime=function(obj_in,var_cluster,pseduotime_start,variable_n=2000){
+  library(scater)
+  library(TSCAN)
+  
+  #data prepare
+  df_info=obj_in@meta.data
+  
+  df_info$group_mst=unlist(df_info[var_cluster])
+  
+  df_info=df_info %>% arrange(group_mst)
+  
+  
+  matrix_cont=GetAssayData(obj_in,assay = "RNA",slot="counts")
+  matrix_cont=matrix_cont[,row.names(df_info)]
+  
+  #rerun normalization to pca
+  message("Rerun normalization to pca...\n")
+  obj_1=CreateSeuratObject(matrix_cont,meta.data = df_info)
+  obj_1=Seurat::NormalizeData(obj_1,verbose =F)
+  obj_1=Seurat::FindVariableFeatures(obj_1,nfeatures=variable_n,verbose =F)
+  obj_1=Seurat::ScaleData(obj_1,verbose =F)
+  obj_1=RunPCA(obj_1,verbose =F)
+  # obj_1=RunTSNE(obj_1,dims = 1:50,verbose =F)
+  Idents(obj_1)=var_cluster
+  levels(obj_1)=sort(unlist(unique(obj_1[[var_cluster]])))
+  
+  #get as.SingleCellExperiment obj
+  obj_in1=as.SingleCellExperiment(obj_1)
+  
+  #get the cluster centroids by averaging the coordinates of its member cells
+  centroids=reducedDim(aggregateAcrossCells(obj_in1,ids=obj_in1[[var_cluster]]),"PCA")
+  
+  #form the minimum spanning tree across those centroids
+  mst=TSCAN::createClusterMST(centroids,cluster=NULL)
+  #obtain a pseudotime ordering by projecting the cells onto the MST. That is move each cell onto the most closet edge of the MST
+  map.tscan=mapCellsToEdges(obj_in1,mst=mst,clusters=obj_in1[[var_cluster]],use.dimred="PCA")
+  #the pseduotime is then calculated as the distance along the MST to this new position from a root node with orderCells(), Need to pick a root node.
+  tscan.pseudo=orderCells(map.tscan,mst,start = pseduotime_start)
+  #the common pseudo
+  common.pseudo=averagePseudotime(tscan.pseudo)
+  
+  #DE genes along the trajectory
+  DE_pseudotime=as.data.frame(testPseudotime(obj_in1,pseudotime=common.pseudo))
+  
+  DE_pseudotime$feature=row.names(DE_pseudotime) 
+  DE_pseudotime=DE_pseudotime%>% arrange(desc(abs(logFC)))
+  
+  list(tscan.pseudo=tscan.pseudo,common.pseudo=common.pseudo,DE_pseudotime=DE_pseudotime)
+}
+
+
+
+#sling traj
+# library(slingshot)
+# 
+# var_cluster="group"
+# pseduotime_start="YN"
+# pseduotime_end="NY"
+# 
+# sce.sling=slingshot(obj_in1,clusterLabels=unlist(obj_in1[[var_cluster]]),
+#                     start.clus=pseduotime_start,end.clus=pseduotime_end,
+#                     reducedDim="PCA")
+# 
+# embeded=embedCurves(sce.sling,"TSNE")
+# embeded=slingCurves(embeded)[[1]]
+# embeded=data.frame(embeded$s[embeded$ord,])
+# 
+# sce.sling$slingPseudotime_1
+# 
+# plotTSNE(sce.sling,colour_by="slingPseudotime_1")+
+#     geom_line(data=embeded,mapping=aes(x=tSNE_1,y=tSNE_2))
+# 
+# 
+
+#KNN prediction -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+knn_pred_one=function(indata,var_y,var_x,KNN_K=5){
+  
+  indata=indata %>% mutate(obs=1:n())
+  
+  formula_in=formula(paste0(var_y,"~",paste0(var_x,collapse = "+")))
+  
+  df_freq=as.data.frame(table(unlist(indata[var_y]))) %>% arrange(Freq)
+  
+  if(min(df_freq$Freq)==1){
+    #split data
+    levels_1=as.character(df_freq$Var1[df_freq$Freq==1])
+    indata_1=indata[unlist(indata[var_y]) %in% levels_1,]
+    indata_rest=indata %>% filter(!obs %in% indata_1$obs)
+    
+    #get KNN model
+    knnFit_rest = train(formula_in, data = indata_rest, method = "knn",
+                        preProcess = c("center", "scale"),
+                        tuneGrid = expand.grid(k = c(KNN_K)))
+    
+    #get KNN predicted value
+    indata_rest$knn_pred=predict(knnFit_rest) %>% as.vector()
+    indata_1$knn_pred=unlist(indata_1[var_y])
+    df_knn=bind_rows(indata_rest,indata_1) %>% arrange(obs)
+    
+    if(!all(df_knn$obs==indata$obs)){stop("obs not match in original data and predicted dataset")}
+    
+    knn_pred=df_knn$knn_pred
+  }
+  
+  if(min(df_freq$Freq)>1){
+    knnFit = train(formula_in, data = indata, method = "knn",
+                   preProcess = c("center", "scale"),
+                   tuneGrid = expand.grid(k = c(KNN_K)))
+    knn_pred=predict(knnFit) %>% as.vector()
+  }
+  
+  knn_pred
+}
+
+
+

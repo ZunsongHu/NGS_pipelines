@@ -1,0 +1,208 @@
+---
+title: "TP53_xiaojingYan"
+author: "Zunsong Hu"
+date: "2024/4/6"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = '/scratch/zuhu/project/xiaojingYan/')
+```
+
+```{r}
+library(stringr)
+```
+
+
+```{r, get intake}
+# "/scratch/zuhu/project/xiaojingYan/02.TP53_8samples/0.original/fq/240352A_JGX0707_S1_L001_R1_001.fastq.gz"
+# 
+# dir_geo="/scratch/zuhu/project/xiaojingYan/02.TP53_8samples/0.original/fq/"
+# 
+# df_info=readxl::read_excel(paste0(dir_geo,"info_TP53_8samples.xlsx")) %>% mutate(obs=NULL)
+# 
+# df_pu=get_PU(dir = dir_geo,postfix = "gz",
+#              read_delim = "_",read_index = -2,read_redundancy = "R",
+#              fqid_delim = "_",fqid_index = 2,fqid_redundancy = "",
+#              strand_delim = "_",strand_index = -2,strand_redundancy = "[12]") %>% 
+#   left_join(df_info)  %>% 
+#   mutate(PU="Illumina",strand="R",sample_id=fqid,project_name="XiaojingYan",subproject="TP53",PL="Illumina",tissue="BM") 
+# 
+# write_tsv(df_pu,paste0(dir_geo,"df_merge.XiaojingYan.TP53.8samples.tsv"))
+# 
+# df_intake=df_pu %>% select(file,name_in_source,fqid,read,strand) %>% 
+#   mutate(
+#          expCellNum=6000,
+#          COH_sample=paste0(fqid,"_Expression"))
+# 
+# 
+# write_tsv(df_intake,paste0(dir_geo,"df_intake.XiaojingYan.TP53.8samples.tsv"))
+
+```
+
+
+```{r}
+
+files_qc=system("ls 02.TP53_8samples/out_raw/*/Cellranger_Count_Expectnumber/metrics_summary.csv",intern = T)
+
+file_qc=files_qc[1]
+
+df_qc=bind_rows(lapply(files_qc, function(file_qc){
+    bind_cols(
+  data.frame(id=word(file_qc,-3,sep="[/]"),stringsAsFactors = F),
+  vroom::vroom(file_qc)
+)
+}))
+
+dir.create("02.TP53_8samples/analysis/02.TP53_8samples")
+
+write_tsv(df_qc,"02.TP53_8samples/analysis/02.TP53_8samples/df_qc.TP53_8samples.tsv")
+  
+
+
+```
+
+```{r}
+files_rds=system("ls 02.TP53_8samples/out_raw/*/Seurat/*.SeuratObj.QC.rds",intern = T)
+
+file_rds=files_rds[8]
+
+id=word(basename(file_rds),1,sep="[.]")
+print(id)
+dir_out=paste0("02.TP53_8samples/out_raw/",id,"/CNV_manual/")
+dir.create(dir_out)
+file_out=paste0(dir_out,"df_for_CNV.tsv")
+plot_out=paste0(dir_out,"dimPlot.cluster_for_CNV.",id)
+
+obj=readRDS(file_rds)
+
+```
+
+```{r 1 JGX0707_Expression}
+df_for_CNV=get_barcode_df(obj) %>% left_join(get_embedding_df(obj,"umap")) %>%
+  left_join(get_metadataVar(obj,"seurat_clusters")) %>% 
+  mutate(
+    cluster_for_CNV=ifelse(seurat_clusters %in% c(22,0,9),1,
+                           ifelse(seurat_clusters %in% c(1,2,3,5,6,15,16,17,19),2,
+                                         ifelse(seurat_clusters %in% c(8,21),4,
+                                                ifelse(seurat_clusters %in% c(11,12,10,18),5,
+                                                       ifelse(seurat_clusters %in% c(4,7,20,23),6,seurat_clusters))))))
+```
+
+```{r 2 LGQ03181_Expression}
+df_for_CNV=get_barcode_df(obj) %>% left_join(get_embedding_df(obj,"umap")) %>%
+  left_join(get_metadataVar(obj,"seurat_clusters")) %>% 
+  mutate(
+    cluster_for_CNV=ifelse(seurat_clusters %in% c(0,1,2,3,5,6,13,15,16),1,
+                           ifelse(seurat_clusters %in% c(7,12,22,23),2,
+                                         ifelse(seurat_clusters %in% c(4,20,24),3,
+                                                ifelse(seurat_clusters %in% c(8,9),4,
+                                                       ifelse(seurat_clusters %in% c(14,18),5,seurat_clusters))))))
+
+df_for_CNV=df_for_CNV %>% mutate(
+  cluster_for_CNV=ifelse(cluster_for_CNV==4 & UMAP_1>5,2,cluster_for_CNV)
+)
+
+head(df_for_CNV$UMAP_1)
+```
+
+```{r 3 SYX0525_Expression}
+df_for_CNV=get_barcode_df(obj) %>% left_join(get_embedding_df(obj,"umap")) %>%
+  left_join(get_metadataVar(obj,"seurat_clusters")) %>% 
+  mutate(
+    cluster_for_CNV=ifelse(seurat_clusters %in% c(0,1,2,3,5,8,10),1,
+                           ifelse(seurat_clusters %in% c(7,11,12),2,seurat_clusters)))
+
+```
+
+```{r 4 WJL05107_Expression}
+df_for_CNV=get_barcode_df(obj) %>% left_join(get_embedding_df(obj,"umap")) %>%
+  left_join(get_metadataVar(obj,"seurat_clusters")) %>% 
+  mutate(
+    cluster_for_CNV=ifelse(seurat_clusters %in% c(6,7,9),1,
+                           ifelse(seurat_clusters %in% c(0,1,2,3,4,5,8,12,16),2,
+                                         ifelse(seurat_clusters %in% c(14,15),3,
+                                                ifelse(seurat_clusters %in% c(10,11),4,seurat_clusters)))))
+
+df_for_CNV=df_for_CNV %>% mutate(
+  cluster_for_CNV=ifelse(cluster_for_CNV==14 & UMAP_1>0,4,cluster_for_CNV)
+)
+
+```
+
+```{r 5 YCX0117_Expression}
+DimPlot(obj,group.by = "seurat_clusters",label=T)
+
+df_for_CNV=get_barcode_df(obj) %>% left_join(get_embedding_df(obj,"umap")) %>%
+  left_join(get_metadataVar(obj,"seurat_clusters")) %>% 
+  mutate(
+    cluster_for_CNV=ifelse(seurat_clusters %in% c(14,15),1,
+                           ifelse(seurat_clusters %in% c(3,5,10,11),2,
+                                         ifelse(seurat_clusters %in% c(0,7),3,
+                                                ifelse(seurat_clusters %in% c(1,2,4,6,8,9,12,13,16),4,seurat_clusters)))))
+```
+
+```{r 6 ZGM03081_Expression}
+DimPlot(obj,group.by = "seurat_clusters",label=T)
+
+df_for_CNV=get_barcode_df(obj) %>% left_join(get_embedding_df(obj,"umap")) %>%
+  left_join(get_metadataVar(obj,"seurat_clusters")) %>% 
+  mutate(
+    cluster_for_CNV=ifelse(seurat_clusters %in% c(3,6,9,8,16,18,19),1,
+                           ifelse(seurat_clusters %in% c(0,2,4,11,12,14),2,
+                                         ifelse(seurat_clusters %in% c(1,5,7,10,15),3,seurat_clusters))))
+
+```
+
+```{r 7 ZYC06151_Expression}
+DimPlot(obj,group.by = "seurat_clusters",label=T)
+
+df_for_CNV=get_barcode_df(obj) %>% left_join(get_embedding_df(obj,"umap")) %>%
+  left_join(get_metadataVar(obj,"seurat_clusters")) %>% 
+  mutate(
+    cluster_for_CNV=ifelse(seurat_clusters %in% c(5,9),1,
+                           ifelse(seurat_clusters %in% c(0,1,2,3,6,7,10,13,14,15,16,20),2,
+                           ifelse(seurat_clusters %in% c(4,8,11,19,21),3,seurat_clusters))))
+                                  
+
+```
+
+```{r 8 ZYC08162_Expression}
+DimPlot(obj,group.by = "seurat_clusters",label=T)
+
+df_for_CNV=get_barcode_df(obj) %>% left_join(get_embedding_df(obj,"umap")) %>%
+  left_join(get_metadataVar(obj,"seurat_clusters")) %>% 
+  mutate(
+    cluster_for_CNV=ifelse(seurat_clusters %in% c(0),1,
+                           ifelse(seurat_clusters %in% c(3,5,6,8),2,
+                           ifelse(seurat_clusters %in% c(1,4),3,
+                           ifelse(seurat_clusters %in% c(2,9),4,seurat_clusters)))))
+                                  
+
+```
+
+
+
+```{r }
+  
+table(is.na(df_for_CNV$cluster_for_CNV))
+write_tsv(df_for_CNV,file_out)
+
+obj[["cluster_for_CNV"]]=df_for_CNV$cluster_for_CNV
+
+DimPlot(obj,group.by = "cluster_for_CNV",label=T)
+ggsave(paste0(plot_out,".png"),width=8,height=7)
+ggsave(paste0(plot_out,".pdf"),width=8,height=7)
+
+```
+
+
+
+
+
+
+
+
+
+
+

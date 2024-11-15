@@ -1,0 +1,637 @@
+
+
+
+#calculate freqs--------------
+cal_freq_NoGroup=function(indata,var_list,digit_n){
+  bind_rows(lapply(var_list, function(var_x){
+    value_x=unlist(indata[var_x])
+    out1=data.frame(table(value_x))
+    out2=data.frame(
+      Variable=var_x,
+      variable_levels=paste0(as.character(unlist(out1[,1]))),
+      N_used=as.character(sum(!is.na(value_x))),
+      All=
+        paste0(unlist(out1[,2]),
+               " (",
+               sprintf("%.1f",unlist(out1[,2])/sum(unlist(out1[,2]))*100),
+               "%)"
+        ),
+      freq=unlist(out1[,2]),
+      percentage=paste0(sprintf("%.1f",unlist(out1[,2])/sum(unlist(out1[,2]))*100),"%"),
+      stringsAsFactors = F
+    )
+    out2$N_used[2:nrow(out2)]=NA
+    bind_rows(data.frame(Variable=var_x,variable_levels=var_x,stringsAsFactors = F),out2) 
+  }))
+  
+}
+
+########################################  2 group t test based on mean and sd ########################################
+#value1="-0.11±0.233"
+#value2="0.36±0.47"
+#n1=60
+#n2=60
+
+#calculate_t_p_with_MeanSd(value1,value2,n1,n2)
+  
+
+calculate_t_p_using_MeanSd=function(value1,value2,n1,n2){
+  mean1=as.numeric(word(value1,1,sep="±"))
+  sd1=as.numeric(word(value1,2,sep="±"))
+  
+  
+  mean2=as.numeric(word(value2,1,sep="±"))
+  sd2=as.numeric(word(value2,2,sep="±"))
+  
+  mean_dif=mean1-mean2
+  sp_squre=((n1-1)*(sd1^2)+(n2-1)*(sd2^2))/(n1+n2-2)
+  se_dif=sqrt(sp_squre/n1+sp_squre/n2)
+  
+  
+  t=mean_dif/se_dif
+  P=2*pt(abs(t), df=(n1+n2-2),lower=F)
+  
+  return(list(t=t,P=P))
+}
+
+########################################  Convert p values ########################################
+convert_p=function(P_raw){
+  P=ifelse(P_raw<0.001,"<0.001",
+           ifelse(P_raw<0.01,sprintf("%.3f",P_raw),
+                  ifelse(P_raw<0.045 | P_raw==0.045,sprintf("%.2f",P_raw),
+                         ifelse(P_raw<0.055 | P_raw==0.055,sprintf("%.3f",P_raw),
+                                ifelse(P_raw>0.055,sprintf("%.2f",P_raw),NA
+                                )))))
+  P
+}
+
+
+########################################  Description median ########################################
+cal_Median_NogroupVariable=function(indata,var_list,digit_n){
+  number_style=paste0("%.",digit_n,"f")
+  bind_rows(lapply(var_list, function(var_one){
+    data.frame(
+      Variable=var_one,
+      N_used=length(unlist(indata[var_one])[!is.na(unlist(indata[var_one]))]),
+      All=
+        paste0(sprintf(number_style,median(unlist(indata[var_one]),na.rm = T))," (",
+               sprintf(number_style,quantile(unlist(indata[var_one]),0.25,na.rm = T))," - ",
+               sprintf(number_style,quantile(unlist(indata[var_one]),0.75,na.rm = T)),")"
+        ),
+      stringsAsFactors = F
+    )
+  }))
+}
+
+cal_Median_WithGroupVariable=function(indata,var_list,var_group,digit_n){
+  
+  number_style=paste0("%.",digit_n,"f")
+  
+  value_group=unlist(indata[var_group])
+  
+  bind_rows(lapply(var_list, function(var_one){
+    value_var=unlist(indata[var_one])
+    
+    out_one=data.frame(matrix(
+      c(
+        var_one,
+        sum(!is.na(value_var) & !is.na(value_group)),
+        paste0(
+          sprintf(number_style,unlist(aggregate(value_var,list(value_group),function(x){median(x,na.rm = T)})[2]))," (",
+          sprintf(number_style,unlist(aggregate(value_var,list(value_group),function(x){quantile(x,0.25,na.rm = T)})[2]))," - ",
+          sprintf(number_style,unlist(aggregate(value_var,list(value_group),function(x){quantile(x,0.75,na.rm = T)})[2])),")"
+        )
+      ),
+      nrow=1),stringsAsFactors = F)
+    names(out_one)=c("Variable","N_used",paste0(var_group,"_",levels(factor(unlist(indata[,var_group])))))
+    x1=kruskal.test(value_var~value_group)
+    
+    out_one$P_raw=x1$p.value
+    out_one$P=convert_p(x1$p.value)
+    out_one
+  }))
+}
+
+cal_descriptive_con_median=function(indata,var_list,var_group,digit_n){
+  x1=cal_Median_NogroupVariable(indata,var_list,digit_n)
+  x2=cal_Median_WithGroupVariable(indata,var_list,var_group,digit_n)
+  N_used=x2[c("Variable","N_used")]
+  x1$N_used=NULL
+  x2$N_used=NULL
+  out_one=x1 %>% left_join(N_used) %>% left_join(x2)
+  out_one
+}
+
+
+
+
+########################################  Calculate Mean and Sd of multiple var with No group ########################################
+#digit_n=1
+
+#cal_MeanSd_NogroupVariable(indata,outcome_con,1)
+
+cal_MeanSd_NogroupVariable=function(indata,var_name,digit_n){
+  mean_value=sprintf(paste0("%.",digit_n,"f"),apply(indata[var_name],2,function(x){mean(x,na.rm = T)}))
+  sd_value=sprintf(paste0("%.",digit_n,"f"),apply(indata[var_name],2,function(x){sd(x,na.rm = T)}))
+  
+  median_value=sprintf(paste0("%.",digit_n,"f"),apply(indata[var_name],2,function(x){median(x,na.rm = T)}))
+  q1_value=sprintf(paste0("%.",digit_n,"f"),apply(indata[var_name],2,function(x){quantile(x,0.25,na.rm = T)}))
+  q3_value=sprintf(paste0("%.",digit_n,"f"),apply(indata[var_name],2,function(x){quantile(x,0.75,na.rm = T)}))
+  
+  min_value=sprintf(paste0("%.",digit_n,"f"),apply(indata[var_name],2,function(x){min(x,na.rm = T)}))
+  max_value=sprintf(paste0("%.",digit_n,"f"),apply(indata[var_name],2,function(x){max(x,na.rm = T)}))
+  
+  N=apply(indata[var_name],2,function(x){sum(!is.na(x))})
+  
+  out=data.frame(
+    Variable=var_name,
+    N=N,
+    Mean_sd=paste0(mean_value, " ± ",sd_value),
+    
+    Median_Q1_Q3=paste0(median_value, " (",q1_value," - ",q3_value,")"),
+    
+    Min_max=paste0(min_value,"-",max_value),
+
+    stringsAsFactors = F)
+  out
+}
+
+########################################  calculate Mean and Sd of one var with one group with multiple levels ########################################
+cal_MeanSd_MultipleLevel_oneVar=function(indata,var_one,var_group,digit_n){
+  out=data.frame(matrix(
+    c(var_one,
+      sum(aggregate(indata[var_one],by=list(unlist(indata[var_group])),function(x){sum(!is.na(x))})[2]),
+      paste0(
+        sprintf(paste0("%.",digit_n,"f"),mean(unlist(indata[!is.na(indata[var_group]),var_one]),na.rm=T)),
+        " ± ",
+        sprintf(paste0("%.",digit_n,"f"),sd(unlist(indata[!is.na(indata[var_group]),var_one]),na.rm=T))
+      ),
+      paste0(
+        t(aggregate(indata[var_one],by=list(unlist(indata[var_group])),function(x){sprintf(paste0("%.",digit_n,"f"),mean(x,na.rm = T))})[,-1]),
+        " ± ",
+        t(aggregate(indata[var_one],by=list(unlist(indata[var_group])),function(x){sprintf(paste0("%.",digit_n,"f"),sd(x,na.rm = T))})[,-1])
+      )
+    ),
+    nrow=1
+  ),
+  stringsAsFactors = F)
+  
+  names(out)=c("Variable","N_used","All",paste0(var_group,"_",levels(factor(unlist(indata[,var_group])))))
+  out$N_used=as.numeric(out$N)
+  out
+}
+
+########################################  calculate Mean and Sd of multiple var with one group with multiple levels ########################################
+
+cal_MeanSd_MultipleLevel_multipleVar=function(indata,var_multiple,var_group,digit_n){
+  out1=bind_rows(
+    lapply(var_multiple, function(var_one){
+      cal_MeanSd_MultipleLevel_oneVar(indata,var_one,var_group,digit_n)
+    }
+    )
+  )
+  out1  
+}
+
+
+
+########################################  Calculate Mean and Sd of multiple var with one group variable and one strata variable ########################################
+
+cal_MeanSd_oneGroup_oneStrata=function(indata,var_x,var_strata,var_group,digit_n){
+  number_style=paste0("%.",digit_n,"f")
+  value_strata_level=levels(factor(unlist(indata[var_strata])))
+  
+  cal_meansd_one_temp=function(i){
+    indata1=indata[unlist(indata[var_strata])==value_strata_level[i],]
+    N_used=length(unlist(indata1[var_x])[!is.na(unlist(indata1[var_x]))])
+    
+    mean_all=mean(unlist(indata1[var_x]),na.rm=T)
+    sd_all=sd(unlist(indata1[var_x]),na.rm=T)
+    All=paste0(sprintf(number_style,mean_all)," ± ",sprintf(number_style,sd_all))
+    
+    mean_g=aggregate(indata1[var_x],by=list(unlist(indata1[var_group])),function(x){mean(x,na.rm=T)})
+    sd_g=aggregate(indata1[var_x],by=list(unlist(indata1[var_group])),function(x){sd(x,na.rm=T)})
+    mean_level=paste0(sprintf(number_style,mean_g[,2])," ± ",sprintf(number_style,sd_g[,2]))
+    
+    out_one=data.frame(c(
+      var_strata,
+      value_strata_level[i],
+      N_used,All,mean_level,
+      cal_annova_p_one(indata1,var_group,var_x)[c(2,3)],
+      Cal_trend_P_oneVar(indata1,var_x,var_group)[c(2,3)]),
+      stringsAsFactors = F
+    )
+    
+    names(out_one)=c("Strat",'Strat_levels','N_used','All',
+                     mean_g[,1],
+                     'P_raw','P','P_trend_raw','P_trend'
+    )
+    out_one
+  }
+  
+  label=data.frame(Strat=var_strata,stringsAsFactors = F)
+  out_mean=bind_rows(label,bind_rows(lapply(1:length(value_strata_level), cal_meansd_one_temp)))
+  out_mean
+}
+
+
+########################################  Calculate annova P value of one or multiple variables ########################################
+#indata=for_compare
+#var=var_con_in[1]
+#group="source"
+#var_con_in
+
+#cal_annova_p(snp_black,'rs1801133',"M1PFolate_result")
+
+cal_annova_p=function(indata,group,var_list){
+  
+  bind_rows(lapply(var_list, function(var){
+    con_group=factor(unlist(indata[group]))
+    con_var=unlist(indata[var])
+    data.frame(Variable=var,
+               P_raw=signif(summary(aov(con_var~as.factor(con_group)))[[1]]$`Pr(>F)`[1],digits = 2),
+               P=convert_p(summary(aov(con_var~as.factor(con_group)))[[1]]$`Pr(>F)`[1]),
+               stringsAsFactors = F)
+  }))
+  
+  
+  
+}
+########################################  Calculate freq, no group variable, one or multiple variables ########################################
+
+#value_x=unlist(indata["hp"])
+#var_x="hp"
+
+cal_freq_NoGroup=function(indata,var_list,digit_n){
+  bind_rows(lapply(var_list, function(var_x){
+    value_x=unlist(indata[var_x])
+    out1=data.frame(table(value_x))
+    out2=data.frame(
+      Variable=var_x,
+      variable_levels=paste0(as.character(unlist(out1[,1]))),
+      N_used=as.character(sum(!is.na(value_x))),
+      All=
+        paste0(unlist(out1[,2]),
+               " (",
+               sprintf("%.1f",unlist(out1[,2])/sum(unlist(out1[,2]))*100),
+               "%)"
+        ),
+      stringsAsFactors = F
+    )
+    out2$N_used[2:nrow(out2)]=NA
+    bind_rows(data.frame(Variable=var_x,variable_levels=var_x,stringsAsFactors = F),out2) 
+  }))
+  
+}
+
+
+########################################  Calculate freq, with group variable, one variable ########################################
+
+#cal_freq_one(indata,group,var_cat_one,"freq1")
+
+#group="all"
+
+#############calculation for one group variable
+cal_freq_one=function(indata,group,var_cat_one,freq_need="freq1"){
+  value_group=unlist(indata[group])
+  value_cat_one=unlist(indata[var_cat_one])
+  
+  factor_group=factor(value_group)
+  factor_cat=factor(value_cat_one)
+  
+  levels(factor_group)[length(levels(factor_group))]
+  levels(factor_cat)[length(levels(factor_cat))]
+  
+  freq_raw=table(value_cat_one,value_group)
+  freq_sum_col=apply(freq_raw,2,sum)
+  
+  #0
+  freq1=data.frame(Variable=rep(var_cat_one,length(levels(factor_cat))+1),
+                   variable_levels=c(var_cat_one,row.names(freq_raw)),
+                   index=c(NA,paste0(var_cat_one,"_",row.names(freq_raw))),
+                   stringsAsFactors = F)
+  freq1$N_used=NA;freq1$N_used[2]=sum(freq_raw)
+  
+  #1
+  if (freq_need=="freq1"){
+    percentage_raw1=freq_raw
+    for (i in 1:length(levels(factor_cat))){
+      percentage_raw1[i,]=percentage_raw1[i,]/freq_sum_col
+    }
+    cal=function(x){paste0(sprintf("%3.3f",round(x,10)*100),"%")}
+    percentage_raw1[]=cal(percentage_raw1)
+    percentage_raw1[]=paste0(freq_raw," (",percentage_raw1,")")
+    percentage_raw1=as.data.frame(percentage_raw1,stringsAsFactors = F)
+    percentage_raw1=dcast(percentage_raw1,value_cat_one~value_group,value.var = 'Freq')
+    
+    names(percentage_raw1)=c("variable_levels",paste0(group,"_",levels(factor_group)))
+    freq_out=freq1 %>% left_join(percentage_raw1)
+    
+  }
+  #2
+  if (freq_need=="freq2"){
+    cal=function(x){paste0(sprintf("%3.3f",round(x,10)*100),"%")}
+    percentage_raw2=freq_raw/sum(freq_raw)
+    percentage_raw2[]=cal(percentage_raw2)
+    percentage_raw2[]=paste0(freq_raw," (",percentage_raw2,")")
+    percentage_raw2=as.data.frame(percentage_raw2,stringsAsFactors = F)
+    percentage_raw2=dcast(percentage_raw2,value_cat_one~value_group,value.var = 'Freq')
+    names(percentage_raw2)=c("variable_levels",paste0(group,"_",levels(factor_group)))
+    freq_out=freq1 %>% left_join(percentage_raw2)
+  }
+  freq_out[]=lapply(freq_out, as.character)
+  freq_out
+}
+
+
+#freq_base1=cal_freq_set_cat(data_merge,'all',var_cat_base)
+cal_freq_set_cat=function(indata,group,var_cat_all){
+  freq_out_set=
+    bind_rows(lapply(var_cat_all,function(var_cat_one){
+      cal_freq_one(indata,group,var_cat_one,"freq1")
+    }))
+  freq_out_set
+}
+
+
+########################################  Calculate chisq ########################################
+#indata=data_1
+#var_group="V3"
+#var_freq="V1"
+cal_chisq=function(var_freq_list,var_group,indata){
+  freq_group  = factor(unlist(indata[var_group]))
+  
+  bind_rows(lapply(var_freq_list, function(var_freq){
+    print(var_freq)
+    freq_var    = factor(unlist(indata[var_freq]))
+    
+    n_min=min(table(freq_group,freq_var))
+    
+    x1=data.frame(table(freq_group,freq_var))
+    x1$value=paste0("value_",x1$freq_var)
+    x2=tidyr::spread(x1[-2], value, Freq)
+    
+    if(any(apply(x2[2:ncol(x2)],1,sum)==0) |  any(apply(x2[2:ncol(x2)],2,sum)==0)){
+      chisq_p=NA
+    } else{
+      
+      if(n_min>4){
+        chisq_p=chisq.test(freq_var,freq_group)$p.value}
+      
+      if(n_min<=4){
+        chisq_p=fisher.test(table(freq_group,freq_var),simulate.p.value = T,alternative = "two.sided")$p.value
+        }
+    }
+    data.frame(
+      Variable=var_freq,
+      P_raw=signif(chisq_p,digits = 6),
+      P=convert_p(chisq_p),
+      stringsAsFactors = F)
+  }))
+  
+}
+
+
+######################################## Merge freq and chisq, one or multiple x var ########################################
+
+#indata=indata
+#group="source1"
+#var_cat_one="points_sum"
+
+#cal_freq_chisq_one(indata,"source1","points_sum","freq1")
+
+
+cal_freq_chisq=function(indata,group,var_cat_list,freq_type){
+  bind_rows(lapply(var_cat_list, function(var_cat_one){
+    out_freq=cal_freq_one(indata,group,var_cat_one,freq_type)
+    out_chisq=cal_chisq(var_cat_one,group,indata)
+    out_freq=out_freq %>% left_join(out_chisq)
+    n=1:nrow(out_freq)
+    out_freq$P=ifelse(n==2,out_freq$P,NA)
+    out_freq
+  }))
+}
+
+######################################## Cochran-Armitage test for trend, One group variable(Oridinal, more than 2 levels), One catgory variable ########################################
+
+
+
+cal_CochranArmitageTest_p=function(indata,var_group,var_x_list){
+  bind_rows(lapply(var_x_list, function(var_cat_one){
+    x=table(indata[c(var_cat_one,var_group)])
+    
+    if(nrow(x)==1){
+      out=data.frame(
+        stringsAsFactors = F,
+        Variable=var_cat_one,
+        variable_levels=row.names(x)[1],
+        test_name=NA,
+        P_trend_raw=NA
+      )
+    }
+    
+    
+    if(nrow(x)==2){
+      test_out=DescTools::CochranArmitageTest(x, "two.sided")
+      out=data.frame(
+        stringsAsFactors = F,
+        Variable=rep(var_cat_one,2),
+        variable_levels=row.names(x)[1:2],
+        test_name=rep(test_out$method,2),
+        P_trend_raw=rep(signif(test_out$p.value,2),2)
+      )
+      
+    }
+    
+    if(nrow(x)>=3){
+      out=bind_rows(
+        lapply(1:nrow(x), function(i){
+          x1=x[i,]
+          x2=apply(x[-i,],2,sum)
+          x3=rbind(x1,x2)
+          test_out=DescTools::CochranArmitageTest(x3, "two.sided")
+          out=data.frame(
+            stringsAsFactors = F,
+            Variable=var_cat_one,
+            variable_levels=row.names(x)[i],
+            test_name=test_out$method,
+            P_trend_raw=signif(test_out$p.value,2)
+          )
+          out
+        })
+      )
+    }
+    out$P_trend=convert_p(out$P_trend_raw)
+    out
+  }))
+
+}
+
+########################################  Extract Percentage ########################################
+
+extract_percentage=function(x){
+  perc=grepl("%",x)
+  x[perc]=word(word(x[perc],2,sep="[(]"),1,sep="[)]")
+  x
+}
+
+########################################  Extract freq ########################################
+extract_freq=function(x){
+  as.numeric(word(x,1,sep=" "))
+}
+
+
+
+
+########################################  Descriptive analysis for continuous variables ########################################
+
+
+#cal_descriptive_con(indata,var_x_list,var_group,digit_n)
+
+cal_descriptive_con_mean=function(indata,var_x_list,var_group,digit_n){
+  bind_rows(lapply(var_x_list, function(var_x_one){
+    bind_cols(
+      cal_MeanSd_MultipleLevel_multipleVar(indata,var_x_one,var_group,digit_n),
+      cal_annova_p(indata,var_group,var_x_one)[-1],
+      Cal_trend_P_oneVar(indata,var_x_one,var_group)[-1]
+    )
+  }))
+}
+
+
+########################################  Descriptive analysis for categorical variables ########################################
+#cal_descriptive_cat(indata,var_x_list,var_group,digit_n)
+
+cal_descriptive_cat=function(indata,var_x_list,var_group,digit_n){
+  
+  x1=cal_freq_NoGroup(indata,var_x_list,digit_n)
+  x2=cal_freq_set_cat(indata,var_group,var_x_list)[-(3:4)]
+  x3=cal_chisq(var_x_list,var_group,indata)
+  x4=cal_CochranArmitageTest_p(indata,var_group,var_x_list)
+  xx=x1 %>% left_join(x2) %>% left_join(x3) %>% left_join(x4)
+  xx
+}
+
+
+########################################  Descriptive analysis comprise of con and cat ########################################
+
+cal_descriptive=function(indata,var_group,var_in_con,var_in_cat,data_label,digit_n){
+  
+  #Mean
+  out_mean1=cal_MeanSd_MultipleLevel_multipleVar(indata,var_in_con,var_group,digit_n)
+  out_mean2=bind_rows(lapply(var_in_con, function(var_in_con_one){
+    cal_annova_p(indata,var_group,var_in_con_one)
+  }))
+  
+  out_mean=out_mean1 %>% left_join(out_mean2) %>% mutate(variable_levels=NA,P_raw=NULL) %>% 
+    left_join(Cal_trend_P_MultipleVar(indata,var_in_con,var_group))
+  out=rbind(out_mean)
+  
+  var_in_cat_one=var_in_cat[1]
+  
+  #Freq
+  if(!is.na(var_in_cat)[1]){
+    out_freq1=bind_rows(lapply(var_in_cat, function(var_in_cat_one){
+      freq1=cal_freq_one(indata,var_group,var_in_cat_one,"freq1")
+      freq1$N_used=freq1$N_used[2]
+      var_in_level_one=data_label$variable_levels[data_label$Variable==var_in_cat_one]
+      freq1=freq1[freq1$variable_levels %in% as.character(var_in_level_one),] %>% 
+        left_join(cal_chisq(var_in_cat_one,var_group,indata)) %>% 
+        left_join(cal_CochranArmitageTest_p(indata,var_group,var_in_cat_one))
+      freq1    
+    }))
+    
+    out_freq2=bind_rows(lapply(var_in_cat, function(var_in_cat_one){
+      freq2=cal_freq_NoGroup(indata,var_in_cat_one,digit_n)
+      freq2$N_used=freq2$N_used[2]
+      var_in_level_one=data_label$variable_levels[data_label$Variable==var_in_cat_one]
+      freq2=freq2[freq2$variable_levels %in% var_in_level_one,]
+      freq2
+    }))
+    
+    out_freq=out_freq2 %>% left_join(out_freq1) %>% mutate(P_raw=NULL,index=NULL,test_name=NULL)
+    out=rbind(out_freq)
+  }
+  
+  #Set out
+  if(!is.na(var_in_cat)[1]){out=rbind(out_mean,out_freq)}
+  
+  names(out)
+  names(data_label)
+  
+  data_label$obs1=1:nrow(data_label)
+  
+  out1=out %>% left_join(data_label) %>% arrange(obs1)
+  
+  out1$Variable=out1$var_need_label
+  
+  out1$obs1=NULL
+  out1$var_group=NULL
+  out1$var_need_label=NULL
+  out1$obs=NULL
+  out1$variable_levels=NULL
+  out1
+}
+
+
+########################################  Descriptive analysis comprise of con and cat with label dataset ########################################
+#indata=data_follow_with_score1
+#var_in_con=var_con
+#var_in_cat=var_cat
+#var_group="sex"
+#data_label=data_label_basic
+
+library(reshape2)
+
+cal_descriptive_new=function(indata,var_in_con,var_in_cat,var_group,data_label){
+  #Mean
+  if(!is.na(var_in_con[1])){
+    out_mean1=cal_MeanSd_MultipleLevel_multipleVar(indata,var_in_con,var_group,1)
+    out_mean2=bind_rows(lapply(var_in_con, function(var_in_con_one){
+      cal_annova_p(indata,var_group,var_in_con_one)
+    }))
+    out_mean=out_mean1 %>% left_join(out_mean2) %>% mutate(variable_levels=NA,P_raw=NULL) 
+  }
+  
+  #Freq
+  if(!is.na(var_in_cat[1])){
+    out_freq1=bind_rows(lapply(var_in_cat, function(var_in_cat_one){
+      cal_freq_NoGroup(indata,var_in_cat_one,1)
+    }))
+    out_freq2=bind_rows(lapply(var_in_cat, function(var_in_cat_one){
+      cal_freq_chisq(indata,var_group,var_in_cat_one,"freq1")
+    }))
+    out_freq2$N_used=NULL
+    out_freq=out_freq1 %>% left_join(out_freq2) %>% mutate(P_raw=NULL,index=NULL)
+  }
+  
+  #Set out
+  if(!is.na(var_in_con[1])){out=rbind(out_mean)}
+  if(!is.na(var_in_cat[1])){out=rbind(out_freq)}
+  if(!is.na(var_in_con[1]) & !is.na(var_in_cat[1])){out=rbind(out_freq,out_mean)}
+  
+  #out manipulation
+  out$order1=1:nrow(out)
+  out$order2=match(out$Variable,data_label$Variable)
+  out=out %>% arrange(order2,order1) %>% mutate(order1=NULL, order2=NULL)
+  
+  
+  out=out %>% left_join(data_label)
+  out$variable_levels=ifelse(out$variable_levels==out$Variable,NA,out$variable_levels)
+  out$Variable=data_label$var_need_label[match(out$Variable,data_label$Variable)]
+  out$variable_levels=ifelse(is.na(out$variable_levels),out$Variable,out$variable_levels)
+  out$variable_levels=ifelse(is.na(out$cat_level_label),out$variable_levels,out$cat_level_label)
+  out[c("obs","var_need_label","var_group","cat_level_label")]=NULL
+  out
+}
+
+
+
+#Cal_trend_P_MultipleVar(data_follow_with_score3,var_con,"score_4g")
+
+
+
+
+
+
+

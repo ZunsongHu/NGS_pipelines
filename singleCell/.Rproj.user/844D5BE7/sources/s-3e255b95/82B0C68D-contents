@@ -1,0 +1,43 @@
+get_celltype_df=function(inObj,df_ref){
+  for_singleR=GetAssayData(inObj)
+  
+  pred_celltype <- SingleR::SingleR(test = for_singleR, ref = df_ref, assay.type.test=1,labels = df_ref$cellType)
+  df_label_pred=data.frame(
+    barcode=row.names(inObj@meta.data),
+    pred_celltype=pred_celltype$labels,
+    stringsAsFactors = F)
+  df_label_pred
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

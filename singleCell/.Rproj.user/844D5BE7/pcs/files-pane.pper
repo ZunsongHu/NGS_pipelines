@@ -1,0 +1,9 @@
+{
+    "path" : "~/pipeline/singleCell",
+    "sortOrder" : [
+        {
+            "ascending" : true,
+            "columnIndex" : 2
+        }
+    ]
+}
