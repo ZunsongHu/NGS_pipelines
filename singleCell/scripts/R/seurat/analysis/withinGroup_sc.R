@@ -50,7 +50,8 @@ w_vln=20;h_vln=15
 obj_$celltype_manual
 
 
-subset_n=200
+subset_n=NULL
+# subset_n=200;
 
 
 
@@ -79,8 +80,7 @@ table(df_$var_group,df_$var_compare)
 levels_=as.character(unique(df_$var_group))
 
 
-level_1="T cell"
-level_1=levels_[1]
+
 
 # vlnPlot  ------------------------------------------------------------------------------------------------ ----
 if(run_vln){
@@ -89,10 +89,40 @@ if(run_vln){
   VlnPlot(obj_,group.by = "var_group",split.by =  "var_compare",features = genes_boxPlot,cols = cols_comapre)
   ggsave(paste0(dir_vln,"vlnPlot.gene.png"),w=w_vln,h=h_vln)
   ggsave(paste0(dir_vln,"vlnPlot.gene.pdf"),w=w_vln,h=h_vln)
+  
+  for (feature in features){
+    prefix_vln=paste0(dir_vln,feature)
+    gg_boxPlot_vlnPlot_dodge_withP(df_in = df_,type = "vlnplot",
+                                   var_value=feature,var_group="var_group",var_group_color="var_compare",cols_color=cols_comapre,
+                                   x_lab=NULL,y_lab=NULL,plot_title=feature,
+                                   x_tick_label_var=NULL,fontSize=14,x_rotate=65,legend_pos="bottom",legend_label=NULL,legend_title=NULL,
+                                   add_P=T,add_points=F,
+                                   prefix=prefix_vln,w=10,h=6,sig_bar_move=0.05)
+  }
 }
 
+#boxPlot  ------------------------------------------------------------------------------------------------ ----
+if (run_boxPlot){
+  dir_boxPlot=paste0(prefix,"boxPlot/")
+  dir.create(dir_boxPlot)
+  
+  
+  
+  for (feature in features){
+    prefix_vln=paste0(dir_boxPlot,feature)
+    gg_boxPlot_vlnPlot_dodge_withP(df_in = df_,type = "boxplot",
+                                   var_value=feature,var_group="var_group",var_group_color="var_compare",cols_color=cols_comapre,
+                                   x_lab=NULL,y_lab=NULL,plot_title=feature,
+                                   x_tick_label_var=NULL,fontSize=14,x_rotate=65,legend_pos="bottom",legend_label=NULL,legend_title=NULL,
+                                   add_P=T,add_points=F,
+                                   prefix=prefix_vln,w=10,h=6,sig_bar_move=0.05)
+  }
+}
 
+# DE  ------------------------------------------------------------------------------------------------ ----
 
+level_1="T cell"
+level_1=levels_[1]
 run_analysis_oneLevel=function(level_1){
   print(level_1)
   
@@ -116,28 +146,10 @@ run_analysis_oneLevel=function(level_1){
     }
   }
 
-  
-  #boxPlot ----
-  if(run_boxPlot){
-    df_1=df_ %>% filter(var_group==level_1)
-    
-    for (feature in features){
-      
-      gg_boxPlot_dodge_withP(df_in = df_1,var_value=feature,var_group="var_compare",var_group_color=cols_comapre,cols_color=NULL,x_lab=NULL,y_lab=NULL,plot_title=NULL,
-                                      x_tick_label_var=NULL,fontSize=14,x_rotate=65,legend_pos="bottom",legend_label=NULL,legend_title=NULL,
-                                      add_P=T,add_points=T,
-                                      prefix=NULL,w=10,h=6,sig_bar_move=0.05)
-    }
-    
-
-  }
 
 }
 
-df_1$var_compare
 
-
-feature=features[1]
 
 
 

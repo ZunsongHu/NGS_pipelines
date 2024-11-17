@@ -325,6 +325,7 @@ gg_boxPlot_3groups_withP=function(df_in,var_value,var_group,var_group_fill,cols_
 
 #groups must be factor
 gg_boxPlot_vlnPlot_dodge_withP=function(df_in,var_value,var_group,var_group_color,cols_color=NULL,
+                                        type="boxplot",
                                         x_lab=NULL,y_lab=NULL,plot_title=NULL,
                                         x_tick_label_var=NULL,
                                         fontSize=14,x_rotate=65,
@@ -384,24 +385,29 @@ gg_boxPlot_vlnPlot_dodge_withP=function(df_in,var_value,var_group,var_group_colo
     write_tsv(df_in1,paste0(prefix,".df_plot.tsv"))
   }
   
-  #get figure
+  # figure base
+  p1=ggplot(df_in1,aes(x=var_group,y=var_value,color=var_group_color))
+  
+  if(tolower(type)=="boxplot"){
+    p1=p1+geom_boxplot(position="dodge",outliers = F)
+  }
+  
+  if(tolower(type)=="vlnplot"){
+    p1=p1+geom_violin(trim=FALSE)
+  }
+  
+  #add points
   if(add_points){
-    p1=ggplot(df_in1,aes(x=var_group,y=var_value,color=var_group_color))+
-      geom_boxplot(position="dodge",outliers = F)+
-      ggbeeswarm::geom_beeswarm(dodge.width=1,cex=0.8)+
-      theme_paper+
-      labs(title = plot_title, x = x_lab, y = y_lab,color=legend_title)+
-      legend_axis_text_size(fontSize)
+    p1=p1+ ggbeeswarm::geom_beeswarm(dodge.width=1,cex=0.8)
   }
   
-  if(!add_points){
-    p1=ggplot(df_in1,aes(x=var_group,y=var_value,color=var_group_color))+
-      geom_boxplot(position="dodge",outliers = F)+
-      theme_paper+
-      labs(title = plot_title, x = x_lab, y = y_lab,color=legend_title)+
-      legend_axis_text_size(fontSize)
-  }
+  #add label
+  p1=p1+
+    theme_paper+
+    labs(title = plot_title, x = x_lab, y = y_lab,color=legend_title)+
+    legend_axis_text_size(fontSize)
   
+  #add P
   if(add_P){
     if (nrow(df_p1)>=1){
       p1=p1+  geom_signif(y_position = df_p1$ymax_1, xmin = df_p1$x_min, 
