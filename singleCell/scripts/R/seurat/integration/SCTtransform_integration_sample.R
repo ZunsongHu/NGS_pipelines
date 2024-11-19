@@ -4,7 +4,7 @@ options(future.globals.maxSize = 100*1024 * 1024^2) #50GB
 gc(rm(list=ls()))
 source("/home/zgu_labs/bin/R/SingleCell/F_sc.R")
 library(stringr)
-#temp parameters
+#temp parameters  -------------------------
 rds_in="/scratch/zuhu/project/ZhaohuiGu/singlecell/PublicData/1M/out/integration_sample1/SeuratObj.Integration.DoubleAnno.rds,
 /scratch/zuhu/project/ZhaohuiGu/singlecell/PublicData/1M/out/integration_sample2/SeuratObj.Integration.DoubleAnno.rds,
 /scratch/zuhu/project/ZhaohuiGu/singlecell/PublicData/1M/out/integration_sample3/SeuratObj.Integration.DoubleAnno.rds,
@@ -16,7 +16,7 @@ rds_in="/scratch/zuhu/project/ZhaohuiGu/singlecell/PublicData/1M/out/integration
 
 n_in_group=50
 
-#get parameters
+#get parameters  -------------------------
 args <- commandArgs(trailingOnly = TRUE)
 print(args)
 

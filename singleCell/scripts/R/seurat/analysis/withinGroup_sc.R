@@ -21,6 +21,8 @@ options(warn=0)
 setwd("/net/nfs-irwrsrchnas01/labs/zgu_grp/Group/Grp_Swaminathan/singleCell")
 file_obj="/net/nfs-irwrsrchnas01/labs/zgu_grp/Group/Grp_Swaminathan/singleCell/analysis/obj/obj_subset/obj_prlrPos.antimiaControl.1491cells.rds"
 
+
+
 var_group="celltype_manual"
 cols_group=cols
 
@@ -32,6 +34,8 @@ features=c("Stat1","Stat2","Irf7","Oas1a","Oas2","Oas3","Oasl1","Ifitm3","Ifi35"
 genes_boxPlot=c("Stat1","Stat2","Irf7","Oas1a","Oas2","Oas3","Oasl1","Ifitm3","Ifi35","Ifi44","Ifi44l","Ifit1","Ifit3")
 prefix=paste0("analysis/withinGrorup/prlrPos.",var_group,".",var_compare,"/")
 
+# file_obj="/net/nfs-irwrsrchnas01/labs/zgu_grp/Group/Grp_Swaminathan/singleCell/analysis/obj/obj_subset/obj_prlrNeg.antimiaControl.112881cells.rds"
+prefix=paste0("analysis/withinGrorup/prlrNeg.",var_group,".",var_compare,"/")
 
 
 dir.create(prefix)
@@ -41,13 +45,12 @@ run_DE=F
 
 # boxPlot
 run_boxPlot=T
+w_box=20;h_box=15
 
 
 # vlnPlot
 run_vln=T
 w_vln=20;h_vln=15
-
-obj_$celltype_manual
 
 
 subset_n=NULL
