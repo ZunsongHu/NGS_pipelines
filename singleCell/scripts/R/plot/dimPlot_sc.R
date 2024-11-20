@@ -1,4 +1,83 @@
+# usage
+# Rscript_seurat5 /net/nfs-irwrsrchnas01/labs/zgu_grp/Individual/zuhu/pipeline/singleCell/scripts/R/plot/dimPlot_sc.R \
+# analysis/obj/obj_seurat.harmony.10samples.rds \
+# sample \
+# analysis/dimPlot/group/dimPlot.sample.pdf \
+# F F \
+# 8 6
 
+
+
+# options(future.globals.maxSize = 150*1024 * 1024^2) #50GB
+# options(scipen = 999)
+
+# options(warn=-1)
+# suppressPackageStartupMessages({
+#   library(Seurat)
+#   library(dplyr)
+#   library(stringr)
+#   library(ggplot2)
+#   library(scCustomize)
+# })
+# options(warn=0)
+
+
+# functions  ------------------------------------------------------------------------------------- ----
+get_barcode_df=function(object_in){
+  data.frame(barcode=row.names(object_in@meta.data),stringsAsFactors = F)
+}
+
+# temp parameters ------------------------------------------------------------------------------------- ----
+# setwd("/net/nfs-irwrsrchnas01/labs/zgu_grp/Group/Grp_AncaPasca/omics/")
+# 
+# file_rds="analysis/obj/obj_seurat.harmony.5samples.rds"
+# var="sample"
+# pdf_out="analysis/dimPlot/sample/dimPlot.sample.pdf"
+# 
+# label_figure='F';repel_figure='F'
+# w_umap=7;h_umap=6
+
+# parameters ------------------------------------------------------------------------------------- ----
+args <- commandArgs(trailingOnly = TRUE)
+print(args)
+
+file_rds=args[1]
+var=args[2]
+pdf_out=args[3]
+
+label_figure=args[4];repel_figure=args[5]
+w_umap=args[6];h_umap=args[7]
+
+
+# other parameters ------------------------------------------------------------------------------------- ----
+shuffle=T
+
+# pharse parameters ------------------------------------------------------------------------------------- ----
+
+dir_out=paste0(dirname(pdf_out),"/")
+if(!dir.exists(dir_out)){dir.create(dir_out,recursive = T)}
+prefix=gsub(".pdf","",pdf_out)
+
+label_figure=ifelse(label_figure=="F",F,T)
+repel_figure=ifelse(repel_figure=="F",F,T)
+
+w_umap=as.numeric(w_umap);h_umap=as.numeric(h_umap)
+
+# read obj  ------------------------------------------------------------------------------------- ----
+cat("reading obj...\n")
+
+obj_=readRDS(file_rds)
+
+
+# get umap   ------------------------------------------------------------------------------------- ----
+DimPlot(obj_,group.by = var,label = label_figure,repel = repel_figure,shuffle = shuffle)
+ggsave(pdf_out,width = w_umap,height = h_umap)
+ggsave(paste0(prefix,".png"),width = w_umap,height = h_umap)
+
+
+
+
+cat("Done umap!\n")
 
 
 
@@ -44,17 +123,48 @@ draw_umap_class=function(inObj,var,outfile_prefix="2.data_temp/test/VlnPlot_qc")
 
 
 
-draw_feature_plot_fromDF=function(objIn,df,varname,label,cols_in,dir_out){
+dimPlot_fromDF=function(objIn = obj_QC,df = singleR_out_$df_singleR_out,
+                        var = "labels",
+                        label = paste0(sample,".",label,".Celllevel"),
+                        cols_in = col_in,
+                        dir_out = dir_out,w=12,h=9,
+                        label_figure=F,repel_figure=F
+){
   
-  objIn[[label]]=unlist(df[varname])
+  if(!all(colnames(obj_QC)==df$barcode)){stop("barcodes of obejct and df for var are not matched")}
   
-  DimPlot(objIn,group.by = label,label=T,repel = T,
+  objIn[[label]]= unname(unlist(df[var]))
+  
+  DimPlot(objIn,group.by = label,label=label_figure,repel = repel_figure,
           cols = cols_in[names(cols_in) %in% unlist(objIn@meta.data[label])])
-  ggsave(paste0(dir_out,label,".png"),width=16,height = 9)
-  ggsave(paste0(dir_out,label,".pdf"),width=16,height = 9)
-  
+  ggsave(paste0(dir_out,label,".png"),width=w,height = h)
+  ggsave(paste0(dir_out,label,".pdf"),width=w,height = h)
   objIn
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

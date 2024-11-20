@@ -1,3 +1,9 @@
+# usage
+# R_seurat5 /net/nfs-irwrsrchnas01/labs/zgu_grp/Individual/zuhu/pipeline/singleCell/scripts/R/seurat/integration/seurat_integration.R \
+# "analysis/obj/individual/S283_Expression1.SeuratObj.QC.rds|analysis/obj/individual/S284_Expression1.SeuratObj.QC.rds|analysis/obj/individual/S285_Expression1.SeuratObj.QC.rds|analysis/obj/individual/S286_Expression1.SeuratObj.QC.rds|analysis/obj/individual/S287_Expression1.SeuratObj.QC.rds" \
+# "analysis/obj/obj_seurat.SCT.5samples.rds" \
+# "sct_CCA"
+
 
 options(future.globals.maxSize = 150*1024 * 1024^2) #150GB
 options(scipen = 999)
@@ -7,11 +13,10 @@ suppressPackageStartupMessages({
   library(Seurat)
   library(dplyr)
   library(stringr)
+  library(ggplot2)
 })
 options(warn=0)
 
-# gc(rm(list=ls()))
-source("/home/zgu_labs/bin/R/SingleCell/F_sc.R")
 
 # functions  ------------------------------------------------------------------------------------- ----
 get_barcode_df=function(object_in){
@@ -21,18 +26,17 @@ get_barcode_df=function(object_in){
 
 
 # temp parameters ------------------------------------------------------------------------------------- ----
-setwd("/net/nfs-irwrsrchnas01/labs/zgu_grp/Group/Grp_AncaPasca/omics/")
-
-files_rds="analysis/obj/individual/S283_Expression1.SeuratObj.QC.rds|
-analysis/obj/individual/S284_Expression1.SeuratObj.QC.rds|
-analysis/obj/individual/S285_Expression1.SeuratObj.QC.rds|
-analysis/obj/individual/S286_Expression1.SeuratObj.QC.rds|
+# setwd("/net/nfs-irwrsrchnas01/labs/zgu_grp/Group/Grp_AncaPasca/omics/")
+# 
+files_rds="analysis/obj/individual/S283_Expression1.SeuratObj.QC.rds,
+analysis/obj/individual/S284_Expression1.SeuratObj.QC.rds,
+analysis/obj/individual/S285_Expression1.SeuratObj.QC.rds,
+analysis/obj/individual/S286_Expression1.SeuratObj.QC.rds,
 analysis/obj/individual/S287_Expression1.SeuratObj.QC.rds"
-
-file_rds_out="analysis/obj/obj_seurat.SCT.5samples.rds"
-
-method="sct_CCA"
-resolution_FindClusters=2
+# 
+# file_rds_out="analysis/obj/obj_seurat.SCT.5samples.rds"
+# 
+# method="sct_cca"
 
 # parameters ------------------------------------------------------------------------------------- ----
 args <- commandArgs(trailingOnly = TRUE)
@@ -40,14 +44,18 @@ print(args)
 
 files_rds=args[1]
 file_rds_out=args[2]
+method=args[3]
 
-n_max=2000
-do_subset=F
+# method="sct_cca"
+# method="harmony"
 
-runSCT=F
-method="sct_CCA"
+# other parameters ------------------------------------------------------------------------------------- ----
+do_subset=F;n_max=2000
+
 resolution_FindClusters=2
 dims_used=50
+
+w_umap=12;h_umap=10
 
 # Anchor-based CCA integration (method=CCAIntegration)
 # Anchor-based RPCA integration (method=RPCAIntegration)
@@ -56,13 +64,15 @@ dims_used=50
 # scVI (method=scVIIntegration)
 
 # pharse parameters ------------------------------------------------------------------------------------- ----
-list_rds=unlist(strsplit(files_rds,split = "\\|\n"))
+list_rds=unlist(strsplit(files_rds,split = "[,\n]"))
+list_rds=list_rds[!list_rds==""]
 
 dir_out=paste0(dirname(file_rds_out),"/")
 if(!dir.exists(dir_out)){dir.create(dir_out,recursive = T)}
 
 label=word(basename(file_rds_out),-2,sep="[.]")
 
+prefix=gsub(".rds","",file_rds_out)
 
 # read obj  ------------------------------------------------------------------------------------- ----
 cat("reading obj...\n")
@@ -75,8 +85,10 @@ list_obj = lapply(list_rds, function(file_rds){
 
 n_obj=length(list_obj)
 
-message("Done Reading Obj\n")
+cat(paste0(n_obj," objects in the integration list.\n"))
 
+
+cat("Done Reading Obj\n")
 if(do_subset){
   cat("subseting\n")
   for(i in 1:n_obj){
@@ -94,16 +106,6 @@ if(do_subset){
   cat("Done subseting\n")
 }
 
-
-
-# SCTransform  ------------------------------------------------------------------------------------- ----
-if(runSCT){
-  print("Performing SCTransform")
-  for(i in 1:n_obj){
-    list_obj[[i]] <- SCTransform(list_obj[[i]], verbose = FALSE,variable.features.n = 3000)
-  }
-}
-
 # integration  ------------------------------------------------------------------------------------- ----
 cat("running integration...\n")
 obj_all <- merge(list_obj[[1]], 
@@ -115,7 +117,7 @@ table(obj_all$group)
 
 # batch correctiong  ------------------------------------------------------------------------------------- ----
 
-if (tolower(method)=="sct_CCA"){
+if (tolower(method)=="sct_cca"){
   cat("running batch integration (method=CCAIntegration, normalization.method = 'SCT')...\n")
   obj_all <- SCTransform(obj_all,verbose=F)
   obj_all <- RunPCA(obj_all,verbose = F)
@@ -148,25 +150,22 @@ if (tolower(method)=="harmony"){
 }
 
 
-message("Done integrating...\n")
+cat("Done integrating...\n")
 
-#draw plot -------------------
-w_umap=10;h_umap=10
-
-
+# draw plot -------------------
 DimPlot(obj_all,group.by = "group")
-ggsave(paste0(dir_out,"dimPlot.group.",label,".png"),width=w_umap,height = h_umap)
-ggsave(paste0(dir_out,"dimPlot.group.",label,".pdf"),width=w_umap,height = h_umap)
+ggsave(paste0(prefix,"dimPlot.group.png"),width=w_umap,height = h_umap)
+ggsave(paste0(prefix,"dimPlot.group.pdf"),width=w_umap,height = h_umap)
 
 DimPlot(obj_all,group.by = "seurat_clusters",label = T,repel = T)
-ggsave(paste0(dir_out,"dimPlot.seurat_clusters.",label,".png"),width=w_umap,height = h_umap)
-ggsave(paste0(dir_out,"dimPlot.seurat_clusters.",label,".pdf"),width=w_umap,height = h_umap)
+ggsave(paste0(prefix,"dimPlot.seurat_clusters.png"),width=w_umap,height = h_umap)
+ggsave(paste0(prefix,"dimPlot.seurat_clusters.pdf"),width=w_umap,height = h_umap)
 
-#save output ---------------------
-message("Saving output...\n")
+# save output ---------------------
+cat("Saving output...\n")
 saveRDS(obj_all,file=file_rds_out)
 obj_all
-message("Done\n")
+cat("Done\n")
 
 
 
